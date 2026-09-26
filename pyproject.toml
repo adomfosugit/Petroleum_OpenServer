@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "petroleum-openserver"
+version = "0.1.0"
+description = "Python port of the Jubilee GAP/PROSPER validation, VLP calculation and IPR matching VBA macros, built on Petroleum Experts' OpenServer API."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "Proprietary" }
+dependencies = [
+    "openserver>=1.154",
+    "openpyxl>=3.1",
+    "numpy>=1.26",
+]
+
+[project.optional-dependencies]
+# Only importable/usable on Windows with the Petex IPM suite and MS Access driver installed.
+windows = ["pywin32>=307", "pyodbc>=5.0"]
+pi = ["requests>=2.32"]
+dev = ["pytest>=8.0"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
