@@ -1,7 +1,7 @@
 import openpyxl
 import pytest
 
-from petroleum_openserver.ipr import ipr_rate
+from petroleum_openserver.ipr import get_ipr_q
 from petroleum_openserver.ipr_matching import estimate_res_press
 
 
@@ -38,7 +38,7 @@ def test_estimate_res_press_uses_annulus_pressure_when_available(workbook):
     ws = workbook["Validation"]
     pi, pb, wc, pwf_gauge = 1.8, 2200.0, 15.0, 1200.0
     true_pr_gauge = 4300.0
-    q = ipr_rate(true_pr_gauge, pwf_gauge, pi, pb, wc)
+    q = get_ipr_q(true_pr_gauge, pb, pi, wc, pwf_gauge)
 
     ws["C5"] = q
     ws["D5"] = pi

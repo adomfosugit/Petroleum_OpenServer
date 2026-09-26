@@ -4,10 +4,10 @@
 `GetICVdPandZoneStatus` and `GetChokedP`.
 
 Unlike `gap_validation.py`/`vlp.py`, none of this talks to OpenServer - it
-only pulls data from the Configuration sheet, the OFM database and (in
-principle) a PI System into the validation sheet, and computes the handful
-of columns the original sheet worked out itself (well liquid rate/WC/GOR/
-status, choke dP, ICV dP, zone counts).
+only pulls data from the Configuration sheet, the OFM database and a PI
+System (via `pi_data.py`) into the validation sheet, and computes the
+handful of columns the original sheet worked out itself (well liquid
+rate/WC/GOR/status, choke dP, ICV dP, zone counts).
 """
 
 from __future__ import annotations
@@ -22,8 +22,9 @@ from .exceptions import ProgramTerminated
 from .gap_naming import row_in_config, tag_col_in_config, tag_col_in_config_ncol, zone_status
 from .ofm import ofm_value
 from .petex_client import terminate
-from .pi_client import PIClient, pi_value
+from .pi_data import pi_value
 from .totals import delete_allocated_totals, delete_measured_totals, delete_total_rates
+from .units import ipt_unit_conv
 
 _ZONES = ("UZ", "MZ", "LZ")
 
@@ -31,7 +32,7 @@ _ZONES = ("UZ", "MZ", "LZ")
 def variable_value(
     config_ws: Worksheet,
     validation_ws: Worksheet,
-    pi_client: Optional[PIClient],
+    pi_server: Optional[str],
     variable_tag: Any,
     required_unit: str,
     zone_name: str = "",
@@ -45,9 +46,10 @@ def variable_value(
         if source == "OFM":
             return ofm_value(config_ws, validation_ws, text, required_unit, zone_name)
         if source == "PI":
-            if pi_client is None:
-                raise ProgramTerminated(f"No PI client configured to resolve {text}")
-            return pi_value(pi_client, text, required_unit)
+            if pi_server is None:
+                raise ProgramTerminated(f"No PI server configured to resolve {text}")
+            selected_date = find_cell(validation_ws, "Date").offset(0, 1).value
+            return pi_value(text, required_unit, pi_server, selected_date, ipt_unit_conv)
         return variable_tag
     return variable_tag
 
@@ -93,7 +95,7 @@ def get_number_of_zones(config_ws: Worksheet, validation_ws: Worksheet, n_row: i
 
 
 def get_riser_data(
-    config_ws: Worksheet, validation_ws: Worksheet, pi_client: Optional[PIClient], n_row: int
+    config_ws: Worksheet, validation_ws: Worksheet, pi_server: Optional[str], n_row: int
 ) -> None:
     """Port of `GetRiserData`."""
     config_row = row_in_config(validation_ws, config_ws, n_row, "Riser")
@@ -110,7 +112,7 @@ def get_riser_data(
         if config_col is not None:
             variable_tag = config_riser_ref.offset(0, config_col).value
             zone_name = "FPSO" if val_col_ref.value == "Riser Gas Lift" else ""
-            temp = variable_value(config_ws, validation_ws, pi_client, variable_tag, reqd_unit, zone_name)
+            temp = variable_value(config_ws, validation_ws, pi_server, variable_tag, reqd_unit, zone_name)
 
         if temp is not None:
             header_ref.offset(4 + n_row, n_col).value = temp
@@ -122,7 +124,7 @@ def _zonal_rate(
     config_ws: Worksheet,
     validation_ws: Worksheet,
     config_well_ref: Ref,
-    pi_client: Optional[PIClient],
+    pi_server: Optional[str],
     uzmzlz: str,
     rate_label: str,
     unit: str,
@@ -134,7 +136,7 @@ def _zonal_rate(
         warnings.warn(f"{column_name} column in Configuration heading not found")
         return "-"
     variable_tag = config_well_ref.offset(0, col).value
-    value = variable_value(config_ws, validation_ws, pi_client, variable_tag, unit, zone_name)
+    value = variable_value(config_ws, validation_ws, pi_server, variable_tag, unit, zone_name)
     return value if is_numeric(value) else "-"
 
 
@@ -142,7 +144,7 @@ def _calculated_well_column(
     config_ws: Worksheet,
     validation_ws: Worksheet,
     config_well_ref: Ref,
-    pi_client: Optional[PIClient],
+    pi_server: Optional[str],
     col_header: str,
     zone_name: str,
 ) -> Any:
@@ -152,8 +154,8 @@ def _calculated_well_column(
     if col_header.endswith("Liquid Rate") and uzmzlz in _ZONES:
         if not zone_name:
             return "-"
-        oil_rate = _zonal_rate(config_ws, validation_ws, config_well_ref, pi_client, uzmzlz, "Oil Rate", "stb/d", zone_name)
-        wat_rate = _zonal_rate(config_ws, validation_ws, config_well_ref, pi_client, uzmzlz, "Water Rate", "stb/d", zone_name)
+        oil_rate = _zonal_rate(config_ws, validation_ws, config_well_ref, pi_server, uzmzlz, "Oil Rate", "stb/d", zone_name)
+        wat_rate = _zonal_rate(config_ws, validation_ws, config_well_ref, pi_server, uzmzlz, "Water Rate", "stb/d", zone_name)
         if oil_rate == "-" or wat_rate == "-":
             return "-"
         return float(oil_rate) + float(wat_rate)
@@ -161,8 +163,8 @@ def _calculated_well_column(
     if col_header.endswith("Watercut") and uzmzlz in _ZONES:
         if not zone_name:
             return "-"
-        oil_rate = _zonal_rate(config_ws, validation_ws, config_well_ref, pi_client, uzmzlz, "Oil Rate", "stb/d", zone_name)
-        wat_rate = _zonal_rate(config_ws, validation_ws, config_well_ref, pi_client, uzmzlz, "Water Rate", "stb/d", zone_name)
+        oil_rate = _zonal_rate(config_ws, validation_ws, config_well_ref, pi_server, uzmzlz, "Oil Rate", "stb/d", zone_name)
+        wat_rate = _zonal_rate(config_ws, validation_ws, config_well_ref, pi_server, uzmzlz, "Water Rate", "stb/d", zone_name)
         if oil_rate == "-" or wat_rate == "-":
             return "-"
         total = float(oil_rate) + float(wat_rate)
@@ -171,8 +173,8 @@ def _calculated_well_column(
     if col_header.endswith("GOR") and uzmzlz in _ZONES:
         if not zone_name:
             return "-"
-        oil_rate = _zonal_rate(config_ws, validation_ws, config_well_ref, pi_client, uzmzlz, "Oil Rate", "stb/d", zone_name)
-        gas_rate = _zonal_rate(config_ws, validation_ws, config_well_ref, pi_client, uzmzlz, "Gas Rate", "mmscf/d", zone_name)
+        oil_rate = _zonal_rate(config_ws, validation_ws, config_well_ref, pi_server, uzmzlz, "Oil Rate", "stb/d", zone_name)
+        gas_rate = _zonal_rate(config_ws, validation_ws, config_well_ref, pi_server, uzmzlz, "Gas Rate", "mmscf/d", zone_name)
         if oil_rate == "-" or gas_rate == "-":
             return "-"
         oil_rate, gas_rate = float(oil_rate), float(gas_rate)
@@ -186,7 +188,7 @@ def _calculated_well_column(
 
 
 def get_well_data(
-    config_ws: Worksheet, validation_ws: Worksheet, pi_client: Optional[PIClient], n_row: int
+    config_ws: Worksheet, validation_ws: Worksheet, pi_server: Optional[str], n_row: int
 ) -> None:
     """Port of `GetWellData`."""
     config_row = row_in_config(validation_ws, config_ws, n_row, "Well")
@@ -210,9 +212,9 @@ def get_well_data(
 
         if config_col is not None:
             variable_tag = config_well_ref.offset(0, config_col).value
-            temp = variable_value(config_ws, validation_ws, pi_client, variable_tag, reqd_unit, zone_name)
+            temp = variable_value(config_ws, validation_ws, pi_server, variable_tag, reqd_unit, zone_name)
         else:
-            temp = _calculated_well_column(config_ws, validation_ws, config_well_ref, pi_client, col_header, zone_name)
+            temp = _calculated_well_column(config_ws, validation_ws, config_well_ref, pi_server, col_header, zone_name)
 
         header_ref.offset(4 + n_row, n_col).value = temp
         n_col += 1
@@ -332,13 +334,13 @@ def get_choke_dp(ws: Worksheet, n_row: int) -> None:
 
 
 def _sum_misc_tags(
-    config_ws: Worksheet, validation_ws: Worksheet, pi_client: Optional[PIClient], base_ref: Ref
+    config_ws: Worksheet, validation_ws: Worksheet, pi_server: Optional[str], base_ref: Ref
 ) -> Any:
     total = 0.0
     for i in range(5):
         variable_tag = base_ref.offset(i, 2).value
         reqd_unit = base_ref.offset(i, 3).value
-        value = variable_value(config_ws, validation_ws, pi_client, variable_tag, reqd_unit)
+        value = variable_value(config_ws, validation_ws, pi_server, variable_tag, reqd_unit)
         if not is_numeric(value):
             return "ERROR"
         total += float(value)
@@ -346,18 +348,18 @@ def _sum_misc_tags(
 
 
 def get_measured_totals(
-    config_ws: Worksheet, validation_ws: Worksheet, pi_client: Optional[PIClient] = None
+    config_ws: Worksheet, validation_ws: Worksheet, pi_server: Optional[str] = None
 ) -> None:
     """Port of `GetMeasuredTotals`."""
     total_ref = find_cell(validation_ws, "Total Oil Rate")
     misc_tags = find_cell(config_ws, "Misc Tags").offset(2, 1)
 
-    total_ref.offset(2, 0).value = _sum_misc_tags(config_ws, validation_ws, pi_client, misc_tags)
+    total_ref.offset(2, 0).value = _sum_misc_tags(config_ws, validation_ws, pi_server, misc_tags)
     total_ref.offset(2, 1).value = _sum_misc_tags(
-        config_ws, validation_ws, pi_client, misc_tags.offset(5, 0)
+        config_ws, validation_ws, pi_server, misc_tags.offset(5, 0)
     )
     total_ref.offset(2, 2).value = _sum_misc_tags(
-        config_ws, validation_ws, pi_client, misc_tags.offset(10, 0)
+        config_ws, validation_ws, pi_server, misc_tags.offset(10, 0)
     )
 
 
@@ -392,7 +394,7 @@ def get_allocated_totals(ws: Worksheet) -> None:
 
 
 def get_data_all(
-    config_ws: Worksheet, validation_ws: Worksheet, pi_client: Optional[PIClient] = None
+    config_ws: Worksheet, validation_ws: Worksheet, pi_server: Optional[str] = None
 ) -> None:
     """Port of `GetData_All`. The original's "this clears everything, proceed?"
     confirmation MsgBox is the caller's responsibility, not this function's."""
@@ -401,13 +403,13 @@ def get_data_all(
 
     n_row = 0
     for _ in iter_down(find_cell(validation_ws, "Riser Name").offset(4, 0)):
-        get_riser_data(config_ws, validation_ws, pi_client, n_row)
+        get_riser_data(config_ws, validation_ws, pi_server, n_row)
         n_row += 1
 
     n_row = 0
     for _ in iter_down(find_cell(validation_ws, "Well Name").offset(4, 0)):
-        get_well_data(config_ws, validation_ws, pi_client, n_row)
+        get_well_data(config_ws, validation_ws, pi_server, n_row)
         n_row += 1
 
-    get_measured_totals(config_ws, validation_ws, pi_client)
+    get_measured_totals(config_ws, validation_ws, pi_server)
     get_allocated_totals(validation_ws)

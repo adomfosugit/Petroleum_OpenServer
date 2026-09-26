@@ -20,8 +20,10 @@ own object model), so an existing workbook can largely keep its layout.
   calculations on Linux/macOS.
 - Python 3.9+
 - `pip install -e .` for the core package; `pip install -e ".[windows]"` to
-  add `pywin32` (COM) and `pyodbc` (OFM/Access) on the target Windows
-  machine; `pip install -e ".[pi]"` if using `PIWebAPIClient`.
+  add `pywin32` (COM - also used by `pi_data.py` to talk to PI SDK) and
+  `pyodbc` (OFM/Access) on the target Windows machine.
+- If resolving `PI:...` tags, PI SDK installed and a Python whose bitness
+  (32/64-bit) matches that install (see `pi_data.py`).
 
 The pure-logic pieces (unit fallback, the IPR solver, the Excel `FindCell`
 helper, and the higher-level orchestration functions with a fake OpenServer
@@ -33,7 +35,7 @@ client) import and test fine on Linux/macOS too - see `tests/`.
 |---|---|
 | `petex_client.py` | `Connect`/`Disconnect`/`DoSet`/`DoGet`/`DoCmd` (via `openserver.OpenServer`), plus `DoSlowCmd`, `CheckOsString`, `DoSetNoErr`, `DoGAPFuncFast`, `fOSOpenFile` |
 | `units.py` | `iPT_UnitConv` |
-| `ipr.py` | `getResPres` |
+| `ipr.py` | The composite IPR module (`GetIprQ`, `GetIprP`, `GetIprAofp`, `IprBinaryChop`, `getResPres`) |
 | `excel_io.py` | `FindCell` + the `Range.Offset(...).Value` idiom |
 | `gap_naming.py` | `GAPWellName`, `GAPRiserName`, `PROSPERModelinGAP`, `RiserforWell`, `RowinConfig`, `TagColinConfig`, `TagColinConfig_nCol`, `ZoneStatus` |
 | `vlp.py` | `VLPCalc_All`, `VLPCalc_SelectedWell`, `VLPCalc` |
@@ -42,7 +44,7 @@ client) import and test fine on Linux/macOS too - see `tests/`.
 | `totals.py` | `DeleteMeasuredTotals`, `DeleteAllocatedTotals`, `DeleteTotalRates`, `GetTotalRates` |
 | `data_import.py` | `GetData_All`, `ClearAllData`, `GetRiserData`, `GetWellData`, `GetMeasuredTotals`, `GetAllocatedTotals`, `VariableValue`, `GetNumberofZones`, `GetWellRateWCGORandStatus`, `GetICVdPandZoneStatus`, `GetChokedP` |
 | `ofm.py` | `OFMValue`, `GetdbFileName` |
-| `pi_client.py` | Stands in for the (not-pasted) `PIValue` |
+| `pi_data.py` | `PIValue`, `GetPiTagAtt`, `GetPiTagVal`, `GetPiTagArr` (PI SDK via `pywin32`) |
 | `workflows.py` | A `Workflow` convenience wrapper over the above, mirroring the ribbon-button Subs |
 
 `ShowSummary`/`ShowDetails` (hide/show Excel columns) aren't ported - pure
@@ -57,8 +59,8 @@ from petroleum_openserver import PetexClient, Workflow
 wb = openpyxl.load_workbook("Jubilee_Validation.xlsx")
 
 with PetexClient() as client:
-    flow = Workflow.from_workbook(client, wb, validation_sheet="Validation")
-    flow.get_data()             # pull Configuration/OFM data onto the sheet
+    flow = Workflow.from_workbook(client, wb, validation_sheet="Validation", pi_server="MyPIServer")
+    flow.get_data()             # pull Configuration/OFM/PI data onto the sheet
     flow.run_gap_validation()   # network-wide GAP solve
     flow.vlp_calc_all()         # PROSPER VLP calc for every well
     flow.match_ipr()            # re-estimate zonal reservoir pressures
@@ -71,40 +73,31 @@ Or call the module-level functions directly if you don't want the
 
 ## Assumptions made where the original VBA wasn't fully available
 
-Three pieces the pasted VBA *referenced* but didn't *define* had to be
-reconstructed rather than transcribed. If you have the original source for
-any of these, prefer porting it directly over what's here:
+`getResPres`/the IPR module (`ipr.py`) and `PIValue` (`pi_data.py`) are now
+direct ports of their real VBA sources. One piece is still a best guess:
 
-1. **`getResPres` (`ipr.py`)** - reconstructed as the standard combined
-   PI/Vogel IPR (Vogel 1968), with the oil fraction (from water cut)
-   following Vogel below the bubble point and the water fraction staying
-   linear, solved for reservoir pressure by bisection. Verify this matches
-   your reservoir engineering standard before trusting the numbers.
+- **`iPT_UnitConv` (`units.py`)** - the real conversion is Petex's
+  `iPT_Utilities.iPT_UnitConv` COM component; `PetexUnitConverter` calls it
+  via `pywin32`, but the exact method name on that COM object wasn't
+  available to confirm against (only a VBA wrapper that called back into
+  itself was). It tries a handful of likely method names on first use; on a
+  machine with IPM installed, confirm the right one with:
 
-2. **`iPT_UnitConv` (`units.py`)** - the real conversion is Petex's
-   `iPT_Utilities.iPT_UnitConv` COM component; `PetexUnitConverter` calls it
-   via `pywin32`, but the exact method name on that COM object wasn't in the
-   pasted VBA (only a wrapper that called back into itself). It tries a
-   handful of likely method names on first use; on a machine with IPM
-   installed, confirm the right one with:
+  ```python
+  import win32com.client
+  obj = win32com.client.Dispatch("iPT_Utilities.iPT_UnitConv")
+  print([m for m in dir(obj) if not m.startswith("_")])
+  ```
 
-   ```python
-   import win32com.client
-   obj = win32com.client.Dispatch("iPT_Utilities.iPT_UnitConv")
-   print([m for m in dir(obj) if not m.startswith("_")])
-   ```
+  `SimpleUnitConverter` (a small pure-Python fallback for common oilfield
+  units) is used by default so the rest of the package is testable without
+  Windows/IPM; call `units.set_default_converter(PetexUnitConverter())` to
+  switch to the real thing.
 
-   `SimpleUnitConverter` (a small pure-Python fallback for common oilfield
-   units) is used by default so the rest of the package is testable without
-   Windows/IPM; call `units.set_default_converter(PetexUnitConverter())` to
-   switch to the real thing.
-
-3. **`PIValue` (`pi_client.py`)** - not part of the pasted VBA at all (only
-   the call site `PIValue(VariableTag, RequiredUnit)` was). `pi_client.py`
-   provides a `PIClient` protocol and a PI Web API-based implementation
-   assuming tags are written as `PI:<TagPath>[:<Unit>]`; confirm that
-   convention against your actual Configuration sheet, or implement
-   `PIClient` against PI SDK/AF SDK if that's what your site uses instead.
+`pi_data.pi_value` expects tags written as `PI:Tag:Unit` and a PI server
+name (`Workflow(pi_server=...)` / `get_data_all(..., pi_server=...)`) -
+resolving one requires PI SDK installed and a matching-bitness Python, since
+it goes through `win32com.client.gencache.EnsureDispatch("PISDK.PISDK")`.
 
 A few smaller behavioural notes:
 

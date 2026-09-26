@@ -20,7 +20,6 @@ from .data_import import get_data_all
 from .gap_validation import run_gap_validation, run_gap_well_validation_all
 from .ipr_matching import match_ipr
 from .petex_client import PetexClient
-from .pi_client import PIClient
 from .vlp import vlp_calc_all
 
 
@@ -38,7 +37,7 @@ class Workflow:
     client: PetexClient
     config_ws: Worksheet
     validation_ws: Worksheet
-    pi_client: Optional[PIClient] = None
+    pi_server: Optional[str] = None
 
     @classmethod
     def from_workbook(
@@ -47,13 +46,13 @@ class Workflow:
         workbook: Workbook,
         validation_sheet: str,
         config_sheet: str = "Configuration",
-        pi_client: Optional[PIClient] = None,
+        pi_server: Optional[str] = None,
     ) -> "Workflow":
-        return cls(client, workbook[config_sheet], workbook[validation_sheet], pi_client)
+        return cls(client, workbook[config_sheet], workbook[validation_sheet], pi_server)
 
     def get_data(self) -> None:
         """Port of `GetData_All` (pull Configuration/OFM/PI data onto the validation sheet)."""
-        get_data_all(self.config_ws, self.validation_ws, self.pi_client)
+        get_data_all(self.config_ws, self.validation_ws, self.pi_server)
 
     def run_gap_validation(self) -> None:
         """Port of `RunGAPValidation` (network-wide GAP solve)."""

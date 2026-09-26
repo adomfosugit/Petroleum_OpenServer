@@ -18,7 +18,6 @@ dependencies = [
 [project.optional-dependencies]
 # Only importable/usable on Windows with the Petex IPM suite and MS Access driver installed.
 windows = ["pywin32>=307", "pyodbc>=5.0"]
-pi = ["requests>=2.32"]
 dev = ["pytest>=8.0"]
 
 [tool.setuptools.packages.find]
