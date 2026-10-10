@@ -124,3 +124,16 @@ solver, `FindCell`/`Ref`, the naming/lookup helpers) and exercises the
 higher-level orchestration (`vlp_calc`, `set_well_routing`,
 `get_flowline_inlet_joint_index`) against a `FakeClient` stand-in for
 `PetexClient`, so none of it needs Windows, PROSPER/GAP, or COM to run.
+
+## Well rate allocation app
+
+`well_allocation_app/` is a Streamlit app that replaces the `Allocation.xlsm`
+workbook (PI pull, PROSPER nodal analysis and gradient match, zonal split,
+field roll-up and PPRS normalisation). See
+[`well_allocation_app/README.md`](well_allocation_app/README.md).
+
+```
+cd well_allocation_app
+pip install -r requirements.txt
+streamlit run app.py
+```
