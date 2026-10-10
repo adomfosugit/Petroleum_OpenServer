@@ -10,9 +10,9 @@ streamlit run app.py        # or double-click run_app.bat on Windows
 
 | Page | What it does | Workbook equivalent |
 |---|---|---|
-| **Month overview** | Status of every well for the month; batch run of pull → nodal + match → export for selected wells | — |
-| **Allocate a well** | Pull PI data (or upload a file), derive liquid/WCT/GOR, run nodal analysis and gradient match, review charts, enter manual matches, export the zonal sheet | `Allocation Worksheet`, macros `PullPIAdvCalcDatBelowTags`, `Calculate_BHP_Nodal_analysis`, `Allocate`, `ExportToTemplateSheet`, templates `Z1`/`Z2`/`Z3` |
+| **Well allocation** | One well at a time, in order: open the well (loads its PROSPER model), pull its data from PI (or upload a file), run the gradient match, review the charts and daily table (with manual overrides), export. Multi-zone wells (Z2/Z3) then go to a zonal split step with editable factors; single-zone wells go straight to the roll-up | `Allocation Worksheet`, macros `PullPIAdvCalcDatBelowTags`, `Calculate_BHP_Nodal_analysis`, `Allocate`, `ExportToTemplateSheet`, templates `Z1`/`Z2`/`Z3` |
 | **Field roll-up** | All exported zones side by side, PPRS upload/edit, normalisation, reconciliation chart, one-click month workbook | `Gradient Match All wells` + `Import_Gradient_Match*` macros, `Gradient Normalization`, `PPRS` |
+| **Month status** | Read-only checklist of every well for the month: pulled, matched, exported, zonal split | — |
 | **Configuration** | Demo/live mode, PI server, unit conversions, match tolerance and method, well table (editable, or imported from the `.xlsm`), single gradient test | `Configuration Sheet`, cells C16:C18, R5 |
 
 ## The calculations

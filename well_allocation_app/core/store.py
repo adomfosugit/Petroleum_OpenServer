@@ -68,7 +68,8 @@ def load_run(mode, mk, well) -> pd.DataFrame | None:
     for c in RUN_COLUMNS:
         if c not in ("match_phase", "match_ok"):
             df[c] = pd.to_numeric(df[c], errors="coerce")
-    df["match_ok"] = df["match_ok"].map(lambda v: str(v).lower() == "true" if pd.notna(v) else pd.NA)
+    df["match_phase"] = df["match_phase"].astype("object")
+    df["match_ok"] = df["match_ok"].map(lambda v: str(v).lower() == "true" if pd.notna(v) else pd.NA).astype("object")
     return df
 
 

@@ -42,8 +42,14 @@ h2, h3 { font-weight: 600 !important; color: var(--ink); }
 .wa-step b { display:block; color: var(--ink); font-weight:600; font-size: .95rem; }
 .wa-step.done { border-top-color: var(--accent); }
 .wa-step.done b::after { content: "  ✓"; color: var(--accent); }
-@media (max-width: 720px) { .wa-rail { grid-template-columns: repeat(2, minmax(0,1fr)); row-gap:.8rem; } }
+@media (max-width: 720px) { .wa-rail { grid-template-columns: repeat(2, minmax(0,1fr)) !important; row-gap:.8rem; } }
 
+.wa-stephd { display:flex; align-items:center; gap:.7rem; margin:.1rem 0 .6rem; }
+.wa-num { width:1.9rem; height:1.9rem; border-radius:50%; display:inline-flex; align-items:center; justify-content:center;
+  font-family:'Barlow Semi Condensed','Source Sans',sans-serif; font-weight:700; font-size:1.05rem;
+  border:2px solid var(--accent); color: var(--accent); background: var(--panel); flex:none; }
+.wa-num.done { background: var(--accent); color:#fff; }
+.wa-steptitle { font-family:'Barlow Semi Condensed','Source Sans',sans-serif; font-weight:600; font-size:1.45rem; color:var(--ink); }
 .wa-chip { display:inline-block; padding: .08rem .55rem; border-radius: 999px; font-size: .78rem;
   border:1px solid var(--line); color: var(--ink); background: var(--panel); }
 .wa-chip.live { border-color:#1E7A46; color:#1E7A46; }
@@ -103,7 +109,8 @@ def rail(steps: list[tuple[str, str, bool]]):
     html = "".join(
         f'<div class="wa-step {"done" if done else ""}"><b>{name}</b>{note}</div>' for name, note, done in steps
     )
-    st.markdown(f'<div class="wa-rail">{html}</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="wa-rail" style="grid-template-columns: repeat({len(steps)}, minmax(0,1fr))">{html}</div>',
+                unsafe_allow_html=True)
 
 
 def mode_chip(mode: str) -> str:
@@ -152,3 +159,8 @@ def band(fig, x, lo, hi, name, fill):
                                  hoverinfo="skip", name=name, legendgroup=name, showlegend=first))
         first = False
     return fig
+
+
+def step(n: int, title: str, done: bool = False):
+    st.markdown(f'<div class="wa-stephd"><span class="wa-num {"done" if done else ""}">{"✓" if done else n}</span>'
+                f'<span class="wa-steptitle">{title}</span></div>', unsafe_allow_html=True)

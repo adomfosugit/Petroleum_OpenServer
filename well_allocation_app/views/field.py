@@ -15,7 +15,9 @@ y, m, mk = ui.period()
 mode = s["mode"]
 idx = month_index(y, m)
 
-exports = store.load_exports(mode, mk)
+all_exports = store.load_exports(mode, mk)
+exports = {w: v for w, v in all_exports.items() if v[1].get("split_done", True)}
+pending = [w for w in all_exports if w not in exports]
 pprs_all = store.load_pprs(mode)
 pprs = pprs_all.reindex(idx) if not pprs_all.empty else pd.DataFrame(index=idx, columns=pprs_all.columns, dtype=float)
 pprs_days = int(pprs["oil"].notna().sum()) if "oil" in pprs else 0
@@ -28,13 +30,16 @@ fiscal_oil = pprs["oil"].mean() if pprs_days else float("nan")
 ui.header(
     "Field roll-up",
     f"{ui.period_label()}: gradient match for all wells, normalised to PPRS",
-    [("Wells exported", f"{len(exports)} / {len(W)}"), ("Zones", str(n_zones)),
+    [("Wells in roll-up", f"{len(exports)} / {len(W)}"), ("Zones", str(n_zones)),
      ("Allocated oil, avg", ui.fmt(alloc_oil, 0, " stb/d")), ("PPRS oil, avg", ui.fmt(fiscal_oil, 0, " stb/d"))],
 )
 
+if pending:
+    st.info(f"Exported but waiting for their zonal split, so not in the roll-up yet: {', '.join(pending)}. "
+            "Finish them on the Well allocation page.")
 if not exports:
-    st.info(f"No wells have been exported for {ui.period_label()} yet. Allocate a well and choose "
-            "'Save to field roll-up', or use 'Run several wells' on the overview.")
+    st.info(f"No wells are in the {ui.period_label()} roll-up yet. Open a well on the Well allocation page, "
+            "match it and export it.")
     st.stop()
 if not pprs_days:
     st.warning(f"No PPRS fiscal data for {ui.period_label()}. Add it under the PPRS tab below so the "

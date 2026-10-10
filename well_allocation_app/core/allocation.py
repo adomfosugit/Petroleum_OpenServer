@@ -156,6 +156,8 @@ def run_gradient_match(run: pd.DataFrame, model, result_string: str, settings: d
                        progress=None) -> pd.DataFrame:
     """Match the PROSPER gradient to the measured BHP gauge pressure, day by day."""
     run = run.copy()
+    run["match_phase"] = run["match_phase"].astype("object")
+    run["match_ok"] = run["match_ok"].astype("object")
     tol = float(settings.get("tolerance", 0.05))
     max_iter = int(settings.get("max_iterations", 200))
     method = settings.get("match_method", "sequential")
