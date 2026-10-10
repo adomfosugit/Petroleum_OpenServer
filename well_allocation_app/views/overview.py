@@ -36,7 +36,7 @@ with st.expander("Run several wells", expanded=not status["exported"].all()):
     src = st.selectbox("Rates to export", list(al.SOURCES), index=list(al.SOURCES).index(s["export_source"]),
                        format_func=lambda k: al.SOURCES[k])
     if st.button(f"Run {len(todo)} well{'s' if len(todo) != 1 else ''}", type="primary",
-                 disabled=not todo or not steps, use_container_width=True):
+                 disabled=not todo or not steps, width="stretch"):
         bar = st.progress(0.0)
         log = st.container()
         failed = 0
@@ -74,7 +74,7 @@ view = status.rename(columns={
     "match_rate": "Days matched %", "source": "Exported rates"})
 view["Exported rates"] = view["Exported rates"].map(lambda k: al.SOURCES.get(k, "").split(" (")[0] if k else "")
 st.dataframe(
-    view, hide_index=True, use_container_width=True, height=min(38 + 35 * n, 760),
+    view, hide_index=True, width="stretch", height=min(38 + 35 * n, 760),
     column_config={
         "Pulled": st.column_config.CheckboxColumn(width="small"),
         "Nodal": st.column_config.CheckboxColumn(width="small"),

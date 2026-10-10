@@ -80,10 +80,10 @@ with tab_w:
     cfg = {k: (st.column_config.NumberColumn(label) if k in NUMERIC_COLS else st.column_config.TextColumn(label))
            for k, (label, _) in WELL_COLUMNS.items()}
     cfg["template"] = st.column_config.SelectboxColumn(WELL_COLUMNS["template"][0], options=["Z1", "Z2", "Z3"])
-    edited = st.data_editor(W, column_config=cfg, num_rows="dynamic", use_container_width=True, height=520,
+    edited = st.data_editor(W, column_config=cfg, num_rows="dynamic", width="stretch", height=520,
                             hide_index=True, key="wells_editor")
     a, b = st.columns([1, 3])
-    if a.button("Save well list", type="primary", use_container_width=True):
+    if a.button("Save well list", type="primary", width="stretch"):
         save_wells(edited)
         st.toast(f"Saved {len(edited.dropna(subset=['well']))} wells")
         st.rerun()
@@ -93,7 +93,7 @@ with tab_w:
             try:
                 new = wells_from_workbook(up)
                 st.dataframe(new[["well", "template", "oil_tag", "thp_tag", "bhp_tag", "nodal_string"]],
-                             hide_index=True, use_container_width=True)
+                             hide_index=True, width="stretch")
                 if st.button(f"Replace the well list with these {len(new)} wells"):
                     save_wells(new)
                     st.rerun()

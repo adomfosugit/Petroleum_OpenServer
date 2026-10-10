@@ -56,7 +56,7 @@ with c1:
     fig = ui.base_layout(fig, 340, unit)
     if phase == "gas":
         fig.update_yaxes(tickformat=",.1f")
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
     if pprs_days:
         ratio = (mats[phase]["Total"] / norm[phase]["PPRS"]).mean()
         st.caption(f"Allocated ÷ PPRS over the month: {ratio:.3f}. Normalisation scales every zone by "
@@ -74,7 +74,7 @@ with c2:
     bar.update_layout(hovermode="closest", bargap=0.3,
                       xaxis=dict(title=unit, tickformat=",.1f" if phase == "gas" else ",.0f", gridcolor="#EEF1F3"),
                       yaxis=dict(title=None, tickformat=None, tickfont=dict(size=11)))
-    st.plotly_chart(bar, use_container_width=True)
+    st.plotly_chart(bar, width="stretch")
     st.caption("Zone-level figures are in the tables below.")
 
 t1, t2, t3, t4 = st.tabs(["Allocated", "Normalised", "PPRS", "Exported wells"])
@@ -84,7 +84,7 @@ fmt_cols = {c: st.column_config.NumberColumn(format="%.3f" if phase == "gas" els
 def show(df):
     v = df.copy()
     v.index = v.index.date
-    st.dataframe(v, use_container_width=True, height=440, column_config=fmt_cols)
+    st.dataframe(v, width="stretch", height=440, column_config=fmt_cols)
 
 
 with t1:
@@ -110,13 +110,13 @@ with t3:
     with b:
         if mode == "demo":
             st.write("")
-            if st.button("Fill demo PPRS for this month", use_container_width=True):
+            if st.button("Fill demo PPRS for this month", width="stretch"):
                 store.merge_pprs(mode, demo.demo_pprs(y, m, list(W["well"])))
                 st.rerun()
     labels = {k: v for k, v in store.PPRS_COLUMNS.items()}
     ed = pprs.copy()
     ed.index = ed.index.date
-    edited = st.data_editor(ed, use_container_width=True, height=400, key=f"pprs_{mode}_{mk}",
+    edited = st.data_editor(ed, width="stretch", height=400, key=f"pprs_{mode}_{mk}",
                             column_config={k: st.column_config.NumberColumn(v, format="%.2f") for k, v in labels.items()})
     if not edited.astype(float).equals(ed.astype(float)):
         new = edited.copy()
@@ -127,10 +127,10 @@ with t4:
     rows = [{"Well": w, "Template": meta.get("template"), "Zones": ", ".join(z["name"] for z in meta.get("zones", [])),
              "Rates": meta.get("source_label", ""), "Saved": meta.get("saved_at", "").replace("T", " ")}
             for w, (_, meta) in exports.items()]
-    st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
+    st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
     r1, r2 = st.columns([2, 1])
     drop = r1.selectbox("Remove a well from this month's roll-up", [""] + list(exports))
-    if drop and r2.button("Remove", use_container_width=True):
+    if drop and r2.button("Remove", width="stretch"):
         store.delete_export(mode, mk, drop)
         st.rerun()
 

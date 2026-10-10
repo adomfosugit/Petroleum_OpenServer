@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import math
+import os
 
 
 class ProsperError(RuntimeError):
@@ -75,6 +76,10 @@ class ProsperSession:
 
     kind = "live"
 
+    # The VBA macros send "PROSPER.ANL.GRD.CALC"; the Python sample sends "...CALC()".
+    # Both are tried, and whichever PROSPER accepts is reused for the rest of the run.
+    CALC_FORMS = ["PROSPER.ANL.GRD.CALC()", "PROSPER.ANL.GRD.CALC"]
+
     def __init__(self, prosper_file: str, show: bool = False):
         try:
             from openserver import OpenServer
@@ -82,20 +87,70 @@ class ProsperSession:
         except ImportError:
             self._c = _ComServer()
         self._c.connect()
-        self._c.DoCmd("PROSPER.START()")
+        self._calc = None
+        # The openserver package raises (and disconnects) when PROSPER is already
+        # running, so a failed START is expected and ignored, as in petex_client.open_file.
+        try:
+            self._c.DoCmd("PROSPER.START()")
+        except Exception:
+            self._reconnect()
         path = prosper_file.strip().strip('"')
-        self._c.DoCmd(f'PROSPER.OPENFILE("{path}")')
+        if not os.path.exists(path):
+            raise ProsperError(f"PROSPER file not found from this computer: {path}")
+        self._cmd(f'PROSPER.OPENFILE("{path}")')
         if show:
-            self._c.DoCmd("PROSPER.SCREEN.SHOW")
+            try:
+                self._c.DoCmd("PROSPER.SCREEN.SHOW")
+            except Exception:
+                self._reconnect()
+
+    def _reconnect(self):
+        if getattr(self._c, "status", "Connected") != "Connected":
+            self._c.connect()
+
+    def _cmd(self, cmd: str):
+        try:
+            self._c.DoCmd(cmd)
+        except Exception as exc:
+            self._reconnect()
+            raise ProsperError(f"PROSPER rejected the command {cmd}: {exc}") from exc
+
+    def _set(self, tag: str, value: float):
+        try:
+            self._c.DoSet(tag, value)
+        except Exception as exc:
+            self._reconnect()
+            raise ProsperError(f"PROSPER could not set {tag} = {value}: {exc}") from exc
+
+    def _get(self, tag: str):
+        try:
+            return self._c.DoGet(tag)
+        except Exception as exc:
+            self._reconnect()
+            raise ProsperError(f"PROSPER could not read {tag} (check the well's result string): {exc}") from exc
+
+    def _run_calc(self):
+        if self._calc:
+            return self._cmd(self._calc)
+        errors = []
+        for form in self.CALC_FORMS:
+            try:
+                self._c.DoCmd(form)
+                self._calc = form
+                return
+            except Exception as exc:
+                self._reconnect()
+                errors.append(f"{form}: {exc}")
+        raise ProsperError("PROSPER rejected the gradient calculation. " + "; ".join(errors))
 
     def gradient(self, thp: float, rate: float, wct: float, gor: float, result_string: str) -> float:
         """PROSPER.ANL.GRD: set top-node pressure, WC, rate, GOR; calculate; read the result string."""
-        self._c.DoSet("PROSPER.ANL.GRD.Pres", float(thp))
-        self._c.DoSet("PROSPER.ANL.GRD.WC", float(wct))
-        self._c.DoSet("PROSPER.ANL.GRD.Rate", float(rate))
-        self._c.DoSet("PROSPER.ANL.GRD.GOR", float(gor))
-        self._c.DoCmd("PROSPER.ANL.GRD.CALC()")
-        val = self._c.DoGet(result_string)
+        self._set("PROSPER.ANL.GRD.Pres", float(thp))
+        self._set("PROSPER.ANL.GRD.WC", float(wct))
+        self._set("PROSPER.ANL.GRD.Rate", float(rate))
+        self._set("PROSPER.ANL.GRD.GOR", float(gor))
+        self._run_calc()
+        val = self._get(result_string)
         try:
             return float(val)
         except (TypeError, ValueError) as exc:

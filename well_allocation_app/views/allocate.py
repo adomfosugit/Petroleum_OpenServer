@@ -80,12 +80,12 @@ with st.container(border=True):
     with c2:
         label = "Pull from PI" if mode == "live" else "Generate demo data"
         b1, b2 = st.columns(2)
-        pull_clicked = b1.button(label, type="primary", use_container_width=True)
-        with b2.popover("Upload a file", use_container_width=True):
+        pull_clicked = b1.button(label, type="primary", width="stretch")
+        with b2.popover("Upload a file", width="stretch"):
             st.caption("CSV or Excel with columns date, oil, gas, water, thp, bhp in field units "
                        "(stb/d, MMscf/d, psia).")
             up = st.file_uploader("Daily data", type=["csv", "xlsx"], label_visibility="collapsed")
-            if up is not None and st.button("Use this file", use_container_width=True):
+            if up is not None and st.button("Use this file", width="stretch"):
                 try:
                     raw = read_uploaded(up, y, m)
                     new = al.empty_run(raw.index)
@@ -136,9 +136,9 @@ with st.container(border=True):
     with o4:
         st.write("")
         bc1, bc2, bc3 = st.columns(3)
-        do_nodal = bc1.button("Nodal", use_container_width=True, help="Calculate_BHP_Nodal_analysis")
-        do_match = bc2.button("Match", use_container_width=True, help="Allocate (gradient match)")
-        do_both = bc3.button("Run both", type="primary", use_container_width=True)
+        do_nodal = bc1.button("Nodal", width="stretch", help="Calculate_BHP_Nodal_analysis")
+        do_match = bc2.button("Match", width="stretch", help="Allocate (gradient match)")
+        do_both = bc3.button("Run both", type="primary", width="stretch")
     if do_nodal or do_match or do_both:
         bar, cb = progress_runner("Opening PROSPER model")
         try:
@@ -181,12 +181,12 @@ with tab_p:
         ui.line(fig, x, run["bhp_nodal"], "PROSPER BHP (MPFM rates)", ui.PRESS["nodal"], dash="dot", unit="psia")
     if has_match:
         ui.line(fig, x, run["match_bhp"], "PROSPER BHP (matched)", ui.PRESS["match"], unit="psia")
-    st.plotly_chart(ui.base_layout(fig, 360, "BHP, psia"), use_container_width=True)
+    st.plotly_chart(ui.base_layout(fig, 360, "BHP, psia"), width="stretch")
     fig = go.Figure()
     ui.line(fig, x, run["thp"], "THP", ui.PRESS["thp"], unit="psia")
     fig = ui.base_layout(fig, 200, "THP, psia", legend=False)
     fig.update_layout(title=dict(text="Tubing head pressure", x=0, font=dict(size=14)), margin=dict(t=36))
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 with tab_r:
     fig = go.Figure()
     ui.line(fig, x, run["liquid"], "MPFM liquid", ui.PHASE["water"], unit="stb/d")
@@ -194,7 +194,7 @@ with tab_r:
         ui.line(fig, x, run["match_liquid"], "Matched liquid", ui.PRESS["match"], unit="stb/d")
     if run["manual_liquid"].notna().any():
         ui.line(fig, x, run["manual_liquid"], "Manual liquid", ui.PRESS["thp"], dash="dash", unit="stb/d")
-    st.plotly_chart(ui.base_layout(fig, 360, "stb/d"), use_container_width=True)
+    st.plotly_chart(ui.base_layout(fig, 360, "stb/d"), width="stretch")
 with tab_wg:
     a, b = st.columns(2)
     fig = go.Figure()
@@ -204,14 +204,14 @@ with tab_wg:
     fig = ui.base_layout(fig, 300, "WCT %")
     fig.update_yaxes(tickformat=".0f")
     fig.update_layout(title=dict(text="Water cut", x=0, font=dict(size=14)))
-    a.plotly_chart(fig, use_container_width=True)
+    a.plotly_chart(fig, width="stretch")
     fig = go.Figure()
     ui.line(fig, x, run["gor"], "MPFM", ui.PHASE["gas"], unit="scf/stb")
     if has_match:
         ui.line(fig, x, run["match_gor"], "Matched", ui.PRESS["match"], unit="scf/stb")
     fig = ui.base_layout(fig, 300, "scf/stb")
     fig.update_layout(title=dict(text="GOR", x=0, font=dict(size=14)))
-    b.plotly_chart(fig, use_container_width=True)
+    b.plotly_chart(fig, width="stretch")
 with tab_t:
     st.caption("Type a manual liquid rate, WCT or GOR on any day to use it when exporting with 'Manual match'. "
                "Days left blank fall back to the MPFM values.")
@@ -242,7 +242,7 @@ with tab_t:
     }
     editable = ["manual_liquid", "manual_wct", "manual_gor"]
     edited = st.data_editor(view, column_config=col_cfg, disabled=[c for c in view.columns if c not in editable],
-                            use_container_width=True, height=420, key=f"ed_{mk}_{well}")
+                            width="stretch", height=420, key=f"ed_{mk}_{well}")
     changed = not edited[editable].astype(float).equals(view[editable].astype(float))
     if changed:
         upd = run.copy()
@@ -269,7 +269,7 @@ with st.container(border=True):
     with e2:
         st.markdown("**Zone split**")
         st.dataframe(pd.DataFrame([{"Zone": z.name, "Interval": z.key, "Factor": z.split} for z in zones]),
-                     hide_index=True, use_container_width=True)
+                     hide_index=True, width="stretch")
         if exported:
             st.caption(f"Last saved {exports[well][1].get('saved_at', '').replace('T', ' ')} "
                        f"using {al.SOURCES.get(exports[well][1].get('source'), '')}.")
@@ -282,15 +282,15 @@ with st.container(border=True):
     fmt = {c: st.column_config.NumberColumn(format="%.3f" if ("Gas" in c or c.endswith(" gas") or c.endswith("WCT"))
                                             else "%.2f" if "%" in c else "%.0f")
            for c in show.columns if c != "Rates from"}
-    st.dataframe(show, use_container_width=True, height=260, column_config=fmt)
+    st.dataframe(show, width="stretch", height=260, column_config=fmt)
     a, b, _ = st.columns([1.3, 1.3, 3])
-    if a.button("Save to field roll-up", type="primary", use_container_width=True):
+    if a.button("Save to field roll-up", type="primary", width="stretch"):
         wf.export(run, row, {**s, "auto_threshold_pct": thr}, mk, src)
         st.toast(f"{well} saved to the {ui.period_label()} roll-up")
         st.rerun()
     meta = {"template": row["template"] or "Z1", "source_label": al.SOURCES[src],
             "zones": [{"key": z.key, "name": z.name, "split": z.split, "label": z.label} for z in zones]}
     b.download_button("Download well sheet", well_workbook(well, table, meta),
-                      file_name=f"{well}_{mk}.xlsx", use_container_width=True,
+                      file_name=f"{well}_{mk}.xlsx", width="stretch",
                       mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
