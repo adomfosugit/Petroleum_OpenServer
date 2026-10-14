@@ -99,6 +99,34 @@ def save(df):
     store.save_run(mode, mk, well, df)
 
 
+def daily(df: pd.DataFrame, cols: list[str]) -> pd.DataFrame:
+    """Selected run columns with a plain date index, for the daily tables."""
+    out = df[cols].copy()
+    out.index = out.index.date
+    out.index.name = "Date"
+    return out
+
+
+_n = st.column_config.NumberColumn
+COL_CFG = {
+    "oil": _n("Oil, stb/d", format="%.0f"), "gas": _n("Gas, MMscf/d", format="%.3f"),
+    "water": _n("Water, stb/d", format="%.0f"), "thp": _n("THP, psia", format="%.0f"),
+    "bhp": _n("Gauge BHP, psia", format="%.0f"), "liquid": _n("Liquid, stb/d", format="%.0f"),
+    "wct": _n("WCT %", format="%.2f"), "gor": _n("GOR, scf/stb", format="%.0f"),
+    "bhp_nodal": _n("Nodal BHP, psia", format="%.0f"), "nodal_dev_pct": _n("Nodal dev %", format="%.2f"),
+    "match_bhp": _n("Matched BHP, psia", format="%.0f"), "match_liquid": _n("Matched liquid", format="%.0f"),
+    "match_wct": _n("Matched WCT %", format="%.2f"), "match_gor": _n("Matched GOR", format="%.0f"),
+    "match_err_pct": _n("Match err %", format="%.2f"), "match_phase": st.column_config.TextColumn("Matched on"),
+    "match_iters": _n("Iterations", format="%d"), "match_ok": st.column_config.CheckboxColumn("Within tol."),
+    "manual_liquid": _n("Manual liquid", format="%.0f"), "manual_wct": _n("Manual WCT %", format="%.2f"),
+    "manual_gor": _n("Manual GOR", format="%.0f"),
+}
+PULL_COLS = ["oil", "gas", "water", "liquid", "wct", "gor", "thp", "bhp"]
+CALC_COLS = ["thp", "bhp", "liquid", "wct", "gor", "bhp_nodal", "nodal_dev_pct",
+             "match_bhp", "match_liquid", "match_wct", "match_gor", "match_err_pct", "match_phase",
+             "match_iters", "match_ok", "manual_liquid", "manual_wct", "manual_gor"]
+
+
 # ================================================================ 2. pull data
 with st.container(border=True):
     ui.step(2, "Pull data", done=has_data)
@@ -137,19 +165,22 @@ with st.container(border=True):
         k2.metric("Liquid, avg", ui.fmt(run["liquid"].mean(), 0, " stb/d"))
         k3.metric("WCT, avg", ui.fmt(run["wct"].mean(), 1, " %"))
         k4.metric("GOR, avg", ui.fmt(run["gor"].mean(), 0, " scf/stb"))
-        a, b = st.columns(2)
-        fig = go.Figure()
-        ui.line(fig, x, run["oil"], "Oil", ui.PHASE["oil"], unit="stb/d")
-        ui.line(fig, x, run["water"], "Water", ui.PHASE["water"], unit="stb/d")
-        fig = ui.base_layout(fig, 260, "stb/d")
-        fig.update_layout(title=dict(text="MPFM rates", x=0, font=dict(size=14)), margin=dict(t=56))
-        a.plotly_chart(fig, width="stretch")
-        fig = go.Figure()
-        ui.line(fig, x, run["bhp"], "Gauge BHP", ui.PRESS["bhp"], unit="psia")
-        ui.line(fig, x, run["thp"], "THP", ui.PRESS["thp"], unit="psia")
-        fig = ui.base_layout(fig, 260, "psia")
-        fig.update_layout(title=dict(text="Pressures", x=0, font=dict(size=14)), margin=dict(t=56))
-        b.plotly_chart(fig, width="stretch")
+        st.markdown("**Pulled data, daily**")
+        st.dataframe(daily(run, PULL_COLS), column_config=COL_CFG, width="stretch", height=320)
+        if st.toggle("Show plots", key=f"plots_pull_{mk}_{well}"):
+            a, b = st.columns(2)
+            fig = go.Figure()
+            ui.line(fig, x, run["oil"], "Oil", ui.PHASE["oil"], unit="stb/d")
+            ui.line(fig, x, run["water"], "Water", ui.PHASE["water"], unit="stb/d")
+            fig = ui.base_layout(fig, 260, "stb/d")
+            fig.update_layout(title=dict(text="MPFM rates", x=0, font=dict(size=14)), margin=dict(t=56))
+            a.plotly_chart(fig, width="stretch")
+            fig = go.Figure()
+            ui.line(fig, x, run["bhp"], "Gauge BHP", ui.PRESS["bhp"], unit="psia")
+            ui.line(fig, x, run["thp"], "THP", ui.PRESS["thp"], unit="psia")
+            fig = ui.base_layout(fig, 260, "psia")
+            fig.update_layout(title=dict(text="Pressures", x=0, font=dict(size=14)), margin=dict(t=56))
+            b.plotly_chart(fig, width="stretch")
 
 if not has_data:
     st.stop()
@@ -199,65 +230,53 @@ with st.container(border=True):
     ratio = (run["match_liquid"] / run["liquid"]).replace([np.inf, -np.inf], np.nan)
     k4.metric("Matched ÷ MPFM liquid", ui.fmt(ratio.median(), 2, "×"), help="Median over the month")
 
+    st.markdown("**Calculations, daily**")
+    st.caption("Nodal BHP uses the MPFM rates; the Matched columns are the gradient match result. Type a manual "
+               "liquid rate, WCT or GOR on any day to export it with 'Manual'. Days left blank use the MPFM values.")
+    view = daily(run, CALC_COLS)
+    editable = ["manual_liquid", "manual_wct", "manual_gor"]
+    edited = st.data_editor(view, column_config=COL_CFG, disabled=[c for c in view.columns if c not in editable],
+                            width="stretch", height=420, key=f"ed_{mk}_{well}")
+    if not edited[editable].astype(float).equals(view[editable].astype(float)):
+        upd = run.copy()
+        for c in editable:
+            upd[c] = pd.to_numeric(edited[c], errors="coerce").values
+        save(upd)
+        st.toast("Manual values saved")
+
     x = run.index
-    tab_p, tab_r, tab_wg, tab_t = st.tabs(["Pressures", "Liquid rate", "WCT and GOR", "Daily table"])
-    with tab_p:
-        band = run["bhp"] * tol_in / 100
-        fig = go.Figure()
-        ui.band(fig, x, run["bhp"] - band, run["bhp"] + band, f"Gauge ±{tol_in:g} %", "rgba(43,92,158,0.12)")
-        ui.line(fig, x, run["bhp"], "Gauge BHP", ui.PRESS["bhp"], unit="psia")
-        ui.line(fig, x, run["bhp_nodal"], "PROSPER BHP (MPFM rates)", ui.PRESS["nodal"], dash="dot", unit="psia")
-        ui.line(fig, x, run["match_bhp"], "PROSPER BHP (matched)", ui.PRESS["match"], unit="psia")
-        st.plotly_chart(ui.base_layout(fig, 360, "BHP, psia"), width="stretch")
-    with tab_r:
-        fig = go.Figure()
-        ui.line(fig, x, run["liquid"], "MPFM liquid", ui.PHASE["water"], unit="stb/d")
-        ui.line(fig, x, run["match_liquid"], "Matched liquid", ui.PRESS["match"], unit="stb/d")
-        if run["manual_liquid"].notna().any():
-            ui.line(fig, x, run["manual_liquid"], "Manual liquid", ui.PRESS["thp"], dash="dash", unit="stb/d")
-        st.plotly_chart(ui.base_layout(fig, 360, "stb/d"), width="stretch")
-    with tab_wg:
-        a, b = st.columns(2)
-        fig = go.Figure()
-        ui.line(fig, x, run["wct"], "MPFM", ui.PHASE["water"], hover_fmt=".1f", unit="%")
-        ui.line(fig, x, run["match_wct"], "Matched", ui.PRESS["match"], hover_fmt=".1f", unit="%")
-        fig = ui.base_layout(fig, 300, "WCT %")
-        fig.update_yaxes(tickformat=".0f")
-        fig.update_layout(title=dict(text="Water cut", x=0, font=dict(size=14)), margin=dict(t=56))
-        a.plotly_chart(fig, width="stretch")
-        fig = go.Figure()
-        ui.line(fig, x, run["gor"], "MPFM", ui.PHASE["gas"], unit="scf/stb")
-        ui.line(fig, x, run["match_gor"], "Matched", ui.PRESS["match"], unit="scf/stb")
-        fig = ui.base_layout(fig, 300, "scf/stb")
-        fig.update_layout(title=dict(text="GOR", x=0, font=dict(size=14)), margin=dict(t=56))
-        b.plotly_chart(fig, width="stretch")
-    with tab_t:
-        st.caption("Type a manual liquid rate, WCT or GOR on any day to use it with 'Manual match' below. "
-                   "Days left blank use the MPFM values.")
-        view = run.copy()
-        view.index = view.index.date
-        n = st.column_config.NumberColumn
-        col_cfg = {
-            "oil": n("Oil", format="%.0f"), "gas": n("Gas MMscf/d", format="%.3f"),
-            "water": n("Water", format="%.0f"), "thp": n("THP", format="%.0f"), "bhp": n("Gauge BHP", format="%.0f"),
-            "liquid": n("Liquid", format="%.0f"), "wct": n("WCT %", format="%.2f"), "gor": n("GOR", format="%.0f"),
-            "bhp_nodal": n("Nodal BHP", format="%.0f"), "nodal_dev_pct": n("Nodal dev %", format="%.2f"),
-            "match_bhp": n("Matched BHP", format="%.0f"), "match_liquid": n("Matched liquid", format="%.0f"),
-            "match_wct": n("Matched WCT", format="%.2f"), "match_gor": n("Matched GOR", format="%.0f"),
-            "match_err_pct": n("Match err %", format="%.2f"), "match_phase": st.column_config.TextColumn("Matched on"),
-            "match_iters": n("Iter.", format="%d"), "match_ok": st.column_config.CheckboxColumn("Within tol."),
-            "manual_liquid": n("Manual liquid", format="%.0f"), "manual_wct": n("Manual WCT", format="%.2f"),
-            "manual_gor": n("Manual GOR", format="%.0f"),
-        }
-        editable = ["manual_liquid", "manual_wct", "manual_gor"]
-        edited = st.data_editor(view, column_config=col_cfg, disabled=[c for c in view.columns if c not in editable],
-                                width="stretch", height=420, key=f"ed_{mk}_{well}")
-        if not edited[editable].astype(float).equals(view[editable].astype(float)):
-            upd = run.copy()
-            for c in editable:
-                upd[c] = pd.to_numeric(edited[c], errors="coerce").values
-            save(upd)
-            st.toast("Manual values saved")
+    if st.toggle("Show plots", key=f"plots_calc_{mk}_{well}"):
+        tab_p, tab_r, tab_wg = st.tabs(["Pressures", "Liquid rate", "WCT and GOR"])
+        with tab_p:
+            band = run["bhp"] * tol_in / 100
+            fig = go.Figure()
+            ui.band(fig, x, run["bhp"] - band, run["bhp"] + band, f"Gauge ±{tol_in:g} %", "rgba(43,92,158,0.12)")
+            ui.line(fig, x, run["bhp"], "Gauge BHP", ui.PRESS["bhp"], unit="psia")
+            ui.line(fig, x, run["bhp_nodal"], "PROSPER BHP (MPFM rates)", ui.PRESS["nodal"], dash="dot", unit="psia")
+            ui.line(fig, x, run["match_bhp"], "PROSPER BHP (matched)", ui.PRESS["match"], unit="psia")
+            st.plotly_chart(ui.base_layout(fig, 360, "BHP, psia"), width="stretch")
+        with tab_r:
+            fig = go.Figure()
+            ui.line(fig, x, run["liquid"], "MPFM liquid", ui.PHASE["water"], unit="stb/d")
+            ui.line(fig, x, run["match_liquid"], "Matched liquid", ui.PRESS["match"], unit="stb/d")
+            if run["manual_liquid"].notna().any():
+                ui.line(fig, x, run["manual_liquid"], "Manual liquid", ui.PRESS["thp"], dash="dash", unit="stb/d")
+            st.plotly_chart(ui.base_layout(fig, 360, "stb/d"), width="stretch")
+        with tab_wg:
+            a, b = st.columns(2)
+            fig = go.Figure()
+            ui.line(fig, x, run["wct"], "MPFM", ui.PHASE["water"], hover_fmt=".1f", unit="%")
+            ui.line(fig, x, run["match_wct"], "Matched", ui.PRESS["match"], hover_fmt=".1f", unit="%")
+            fig = ui.base_layout(fig, 300, "WCT %")
+            fig.update_yaxes(tickformat=".0f")
+            fig.update_layout(title=dict(text="Water cut", x=0, font=dict(size=14)), margin=dict(t=56))
+            a.plotly_chart(fig, width="stretch")
+            fig = go.Figure()
+            ui.line(fig, x, run["gor"], "MPFM", ui.PHASE["gas"], unit="scf/stb")
+            ui.line(fig, x, run["match_gor"], "Matched", ui.PRESS["match"], unit="scf/stb")
+            fig = ui.base_layout(fig, 300, "scf/stb")
+            fig.update_layout(title=dict(text="GOR", x=0, font=dict(size=14)), margin=dict(t=56))
+            b.plotly_chart(fig, width="stretch")
 
     st.divider()
     e1, e2 = st.columns([3, 2])
