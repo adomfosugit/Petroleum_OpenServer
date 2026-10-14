@@ -111,10 +111,37 @@ def normalise_wells(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def _is_header_or_blank(first_cell) -> bool:
+    v = clean_text(first_cell).lower()
+    return v in {"", "well"}
+
+
+def read_wells_csv(path) -> pd.DataFrame:
+    """Read a well CSV in either layout.
+
+    * App layout: one header row with the WELL_COLUMNS keys (what save_wells writes).
+    * Sheet layout: the Configuration Sheet copied/saved as CSV from column C onwards,
+      header rows included (Upper Zone / UZ ICV ... / units). Columns are taken by
+      position C..AE, exactly like wells_from_workbook.
+    """
+    raw = pd.read_csv(path, dtype=str, header=None, keep_default_na=False)
+    if not raw.empty and "well" in {clean_text(v) for v in raw.iloc[0]}:
+        return normalise_wells(pd.read_csv(path, dtype=str))
+    keys = list(WELL_COLUMNS)
+    rows = []
+    for _, r in raw.iterrows():
+        if _is_header_or_blank(r.iloc[0]):
+            continue
+        vals = list(r.values)[:len(keys)]
+        vals += [None] * (len(keys) - len(vals))
+        rows.append(dict(zip(keys, vals)))
+    return normalise_wells(pd.DataFrame(rows, columns=keys))
+
+
 def load_wells() -> pd.DataFrame:
     for path in (WELLS_CSV, WELLS_EXAMPLE):
         if path.exists():
-            return normalise_wells(pd.read_csv(path, dtype=str))
+            return read_wells_csv(path)
     return normalise_wells(pd.DataFrame(columns=list(WELL_COLUMNS)))
 
 
