@@ -190,103 +190,99 @@ with st.container(border=True):
 if not has_data:
     st.stop()
 
-# ================================================================ 3. gradient match
+# ================================================================ 3. gradient match (manual for now)
 tol_pct = float(s["tolerance"]) * 100
 with st.container(border=True):
     ui.step(3, "Gradient match", done=has_match)
     st.markdown(
-        f'<span class="wa-note">For each day PROSPER calculates the gradient from THP with the MPFM liquid rate, '
-        f'WCT and GOR, reads the pressure at <code>{row["nodal_string"] or "no result string set"}</code>, '
-        f'then adjusts the inputs until it matches the gauge BHP within tolerance.</span>', unsafe_allow_html=True)
-    o1, o2, o3, o4 = st.columns([2, 1.2, 1.2, 1.6])
-    method = o1.segmented_control(
-        "Method", ["sequential", "binary_chop"], default=s["match_method"],
-        format_func=lambda v: {"sequential": "Rate → GOR → WCT", "binary_chop": "Binary chop on rate"}[v],
-    ) or s["match_method"]
-    tol_in = o2.number_input("Tolerance %", 0.01, 50.0, tol_pct, 0.5, format="%.2f")
-    iters = o3.number_input("Max iterations", 5, 2000, int(s["max_iterations"]), 5)
-    o4.write("")
-    go_match = o4.button("Run gradient match" if not has_match else "Run again",
-                         type="primary" if not has_match else "secondary", width="stretch")
-    if go_match:
+        f'<span class="wa-note"><b>Manual method.</b> For each day PROSPER runs the gradient from THP with the '
+        f'figures below and reads the pressure at <code>{row["nodal_string"] or "no result string set"}</code>. '
+        f'Type your own liquid rate, WCT or GOR on any day to run those instead; blank cells use the MPFM figures. '
+        f'Adjust and run again until the calculated BHP sits on the gauge BHP. '
+        f'Automatic matching will be added later.</span>', unsafe_allow_html=True)
+
+    inp = daily(run, ["thp", "bhp", "liquid", "wct", "gor", "manual_liquid", "manual_wct", "manual_gor"])
+    inp_cfg = {**COL_CFG,
+               "liquid": _n("MPFM liquid, stb/d", format="%.0f"), "wct": _n("MPFM WCT %", format="%.2f"),
+               "gor": _n("MPFM GOR, scf/stb", format="%.0f"),
+               "manual_liquid": _n("Your liquid, stb/d", format="%.0f", min_value=0.0),
+               "manual_wct": _n("Your WCT %", format="%.2f", min_value=0.0, max_value=100.0),
+               "manual_gor": _n("Your GOR, scf/stb", format="%.0f", min_value=0.0)}
+    editable = ["manual_liquid", "manual_wct", "manual_gor"]
+    st.markdown("**Figures to run**")
+    edited = st.data_editor(inp, column_config=inp_cfg, disabled=[c for c in inp.columns if c not in editable],
+                            width="stretch", height=320, key=f"inp_{mk}_{well}")
+    if not edited[editable].astype(float).equals(inp[editable].astype(float)):
+        upd = run.copy()
+        for c in editable:
+            upd[c] = pd.to_numeric(edited[c], errors="coerce").values
+        save(upd)
+        run = upd
+        st.toast("Figures saved. Run PROSPER to update the results.")
+
+    o1, o2, o3 = st.columns([1.2, 1.2, 3])
+    tol_in = o1.number_input("Tolerance %", 0.01, 50.0, tol_pct, 0.5, format="%.2f",
+                             help="Days whose calculated BHP is within this of the gauge BHP are flagged as matched.")
+    o2.write("")
+    go_run = o2.button("Run PROSPER" if not has_match else "Run PROSPER again",
+                       type="primary" if not has_match else "secondary", width="stretch")
+    n_edit = int(run[editable].notna().any(axis=1).sum())
+    o3.write("")
+    o3.caption(f"{n_edit} day(s) with your own figures; the rest run on MPFM figures.")
+    if go_run:
         bar, cb = progress_runner("Opening PROSPER model")
         try:
-            out = wf.gradient_match(run, row, {**s, "match_method": method, "tolerance": tol_in / 100,
-                                               "max_iterations": int(iters)}, cb)
+            out = wf.manual_match(run, row, {**s, "tolerance": tol_in / 100}, cb)
             save(out)
             bar.empty()
             st.rerun()
         except Exception as exc:
             bar.empty()
-            st.error(f"Gradient match failed: {exc}")
+            st.error(f"PROSPER run failed: {exc}")
+
+    if has_match:
+        st.markdown("**Results**")
+        k1, k2, k3, k4 = st.columns(4)
+        err = run["match_err_pct"]
+        k1.metric("Mean deviation, figures run", ui.fmt(err.mean(), 2, " %"),
+                  help="Mean of |gauge BHP − PROSPER BHP| / gauge BHP")
+        k2.metric("Mean deviation, MPFM figures", ui.fmt(run["nodal_dev_pct"].mean(), 2, " %"))
+        k3.metric(f"Days within {tol_in:g} %", f"{int((err <= tol_in).sum())} / {int(err.notna().sum())}")
+        k4.metric("Max deviation", ui.fmt(err.max(), 2, " %"))
+        res = daily(run, ["thp", "match_liquid", "match_wct", "match_gor", "match_phase",
+                          "bhp", "match_bhp", "match_err_pct", "bhp_nodal", "nodal_dev_pct"])
+        res["match_ok"] = (run["match_err_pct"] <= tol_in).where(run["match_err_pct"].notna()).values
+        res_cfg = {**COL_CFG,
+                   "match_liquid": _n("Liquid run, stb/d", format="%.0f"), "match_wct": _n("WCT run %", format="%.2f"),
+                   "match_gor": _n("GOR run, scf/stb", format="%.0f"),
+                   "match_phase": st.column_config.TextColumn("Figures"),
+                   "match_bhp": _n("PROSPER BHP, psia", format="%.0f"), "match_err_pct": _n("Deviation %", format="%.2f"),
+                   "bhp_nodal": _n("PROSPER BHP (MPFM), psia", format="%.0f"),
+                   "nodal_dev_pct": _n("Deviation (MPFM) %", format="%.2f")}
+        st.dataframe(res, column_config=res_cfg, width="stretch", height=320)
+
+        x = run.index
+        band = run["bhp"] * tol_in / 100
+        fig = go.Figure()
+        ui.band(fig, x, run["bhp"] - band, run["bhp"] + band, f"Gauge ±{tol_in:g} %", "rgba(43,92,158,0.12)")
+        ui.line(fig, x, run["bhp"], "Gauge BHP (actual)", ui.PRESS["bhp"], unit="psia")
+        ui.line(fig, x, run["match_bhp"], "PROSPER BHP (figures run)", ui.PRESS["match"], unit="psia")
+        if run["match_phase"].eq("manual").any():
+            ui.line(fig, x, run["bhp_nodal"], "PROSPER BHP (MPFM figures)", ui.PRESS["nodal"], dash="dot", unit="psia")
+        fig = ui.base_layout(fig, 380, "BHP, psia")
+        fig.update_layout(title=dict(text="Calculated vs actual BHP", x=0, font=dict(size=14)), margin=dict(t=56))
+        st.plotly_chart(fig, width="stretch")
 
 if not has_match:
     st.stop()
 
 # ================================================================ 4. review and export
 with st.container(border=True):
-    ui.step(4, "Review results and export", done=exported)
-    k1, k2, k3, k4 = st.columns(4)
-    dev = run["nodal_dev_pct"]
-    k1.metric("Nodal deviation, MPFM rates", ui.fmt(dev.mean(), 2, " %"),
-              help="Mean of |gauge BHP − PROSPER BHP| / gauge BHP before matching")
-    k2.metric(f"Days already within {tol_in:g} %", f"{int((dev <= tol_in).sum())} / {int(dev.notna().sum())}")
-    k3.metric("Days matched", f"{int(run['match_ok'].eq(True).sum())} / {int(run['match_bhp'].notna().sum())}")
-    ratio = (run["match_liquid"] / run["liquid"]).replace([np.inf, -np.inf], np.nan)
-    k4.metric("Matched ÷ MPFM liquid", ui.fmt(ratio.median(), 2, "×"), help="Median over the month")
-
-    st.markdown("**Calculations, daily**")
-    st.caption("Nodal BHP uses the MPFM rates; the Matched columns are the gradient match result. Type a manual "
-               "liquid rate, WCT or GOR on any day to export it with 'Manual'. Days left blank use the MPFM values.")
-    view = daily(run, CALC_COLS)
-    editable = ["manual_liquid", "manual_wct", "manual_gor"]
-    edited = st.data_editor(view, column_config=COL_CFG, disabled=[c for c in view.columns if c not in editable],
-                            width="stretch", height=420, key=f"ed_{mk}_{well}")
-    if not edited[editable].astype(float).equals(view[editable].astype(float)):
-        upd = run.copy()
-        for c in editable:
-            upd[c] = pd.to_numeric(edited[c], errors="coerce").values
-        save(upd)
-        st.toast("Manual values saved")
-
-    x = run.index
-    if st.toggle("Show plots", key=f"plots_calc_{mk}_{well}"):
-        tab_p, tab_r, tab_wg = st.tabs(["Pressures", "Liquid rate", "WCT and GOR"])
-        with tab_p:
-            band = run["bhp"] * tol_in / 100
-            fig = go.Figure()
-            ui.band(fig, x, run["bhp"] - band, run["bhp"] + band, f"Gauge ±{tol_in:g} %", "rgba(43,92,158,0.12)")
-            ui.line(fig, x, run["bhp"], "Gauge BHP", ui.PRESS["bhp"], unit="psia")
-            ui.line(fig, x, run["bhp_nodal"], "PROSPER BHP (MPFM rates)", ui.PRESS["nodal"], dash="dot", unit="psia")
-            ui.line(fig, x, run["match_bhp"], "PROSPER BHP (matched)", ui.PRESS["match"], unit="psia")
-            st.plotly_chart(ui.base_layout(fig, 360, "BHP, psia"), width="stretch")
-        with tab_r:
-            fig = go.Figure()
-            ui.line(fig, x, run["liquid"], "MPFM liquid", ui.PHASE["water"], unit="stb/d")
-            ui.line(fig, x, run["match_liquid"], "Matched liquid", ui.PRESS["match"], unit="stb/d")
-            if run["manual_liquid"].notna().any():
-                ui.line(fig, x, run["manual_liquid"], "Manual liquid", ui.PRESS["thp"], dash="dash", unit="stb/d")
-            st.plotly_chart(ui.base_layout(fig, 360, "stb/d"), width="stretch")
-        with tab_wg:
-            a, b = st.columns(2)
-            fig = go.Figure()
-            ui.line(fig, x, run["wct"], "MPFM", ui.PHASE["water"], hover_fmt=".1f", unit="%")
-            ui.line(fig, x, run["match_wct"], "Matched", ui.PRESS["match"], hover_fmt=".1f", unit="%")
-            fig = ui.base_layout(fig, 300, "WCT %")
-            fig.update_yaxes(tickformat=".0f")
-            fig.update_layout(title=dict(text="Water cut", x=0, font=dict(size=14)), margin=dict(t=56))
-            a.plotly_chart(fig, width="stretch")
-            fig = go.Figure()
-            ui.line(fig, x, run["gor"], "MPFM", ui.PHASE["gas"], unit="scf/stb")
-            ui.line(fig, x, run["match_gor"], "Matched", ui.PRESS["match"], unit="scf/stb")
-            fig = ui.base_layout(fig, 300, "scf/stb")
-            fig.update_layout(title=dict(text="GOR", x=0, font=dict(size=14)), margin=dict(t=56))
-            b.plotly_chart(fig, width="stretch")
-
-    st.divider()
+    ui.step(4, "Review and export", done=exported)
     e1, e2 = st.columns([3, 2])
-    options = list(al.SOURCES)
+    options = ["mpfm", "matched", "auto"]
     default_src = exp_meta.get("source", s["export_source"]) if exported else s["export_source"]
+    default_src = default_src if default_src in options else "matched"
     src = e1.radio("Rates to export", options, index=options.index(default_src), format_func=lambda k: al.SOURCES[k])
     thr = float(s["auto_threshold_pct"])
     if src == "auto":
@@ -304,7 +300,7 @@ with st.container(border=True):
     preview = al.zonal_split(al.build_export(run, src, thr), [])
     show = preview.copy()
     show.index = show.index.date
-    show["source"] = show["source"].map({"mpfm": "MPFM", "matched": "Matched", "manual": "Manual"})
+    show["source"] = show["source"].map({"mpfm": "MPFM", "matched": "PROSPER run", "manual": "Manual"})
     show = show.rename(columns={"liquid": "Liquid", "wct": "WCT %", "gor": "GOR", "bhp_dev_pct": "BHP dev %",
                                 "source": "Rates from", "oil": "Oil", "gas": "Gas MMscf/d", "water": "Water"})
     fmt = {c: st.column_config.NumberColumn(format="%.3f" if "Gas" in c else "%.2f" if "%" in c else "%.0f")

@@ -75,6 +75,46 @@ def run_nodal_analysis(run: pd.DataFrame, model, result_string: str, progress=No
     return run.replace([np.inf, -np.inf], np.nan)
 
 
+def run_manual_match(run: pd.DataFrame, model, result_string: str, tol: float = 0.05,
+                     progress=None) -> pd.DataFrame:
+    """Manual gradient match: one PROSPER run per day on the engineer's figures, no iteration.
+
+    Figures per day: manual liquid / WCT / GOR where typed, otherwise the MPFM value.
+    Writes bhp_nodal + nodal_dev_pct (MPFM figures) and match_* (figures run), so the
+    review and export steps work unchanged. PROSPER is only called twice on days
+    that have a manual figure; other days reuse the MPFM result.
+    """
+    run = run.copy()
+    n = len(run)
+    for i, (d, r) in enumerate(run.iterrows()):
+        if progress:
+            progress(i / max(n, 1), f"PROSPER {d:%d %b}")
+        liq = r.manual_liquid if is_finite(r.manual_liquid) else r.liquid
+        wct = r.manual_wct if is_finite(r.manual_wct) else r.wct
+        gor = r.manual_gor if is_finite(r.manual_gor) else r.gor
+        edited = any(is_finite(v) for v in (r.manual_liquid, r.manual_wct, r.manual_gor))
+
+        base = (model.gradient(r.thp, r.liquid, r.wct, r.gor, result_string)
+                if is_finite(r.thp, r.liquid, r.wct, r.gor) else np.nan)
+        run.at[d, "bhp_nodal"] = base
+        if edited:
+            bhp = model.gradient(r.thp, liq, wct, gor, result_string) if is_finite(r.thp, liq, wct, gor) else np.nan
+        else:
+            bhp = base
+        run.at[d, "match_bhp"] = bhp
+        run.at[d, "match_liquid"], run.at[d, "match_wct"], run.at[d, "match_gor"] = liq, wct, gor
+        run.at[d, "match_phase"] = "manual" if edited else "MPFM"
+        run.at[d, "match_iters"] = 1
+    with np.errstate(divide="ignore", invalid="ignore"):
+        run["nodal_dev_pct"] = (run["bhp"] - run["bhp_nodal"]).abs() / run["bhp"] * 100.0
+        run["match_err_pct"] = (run["bhp"] - run["match_bhp"]).abs() / run["bhp"] * 100.0
+    run = run.replace([np.inf, -np.inf], np.nan)
+    run["match_ok"] = [None if pd.isna(e) else bool(e <= tol * 100) for e in run["match_err_pct"]]
+    if progress:
+        progress(1.0, "PROSPER runs done")
+    return run
+
+
 @dataclass
 class MatchResult:
     liquid: float
@@ -196,9 +236,9 @@ def run_gradient_match(run: pd.DataFrame, model, result_string: str, settings: d
 
 SOURCES = {
     "mpfm": "MPFM-derived (as the workbook exports)",
-    "matched": "Gradient-matched",
-    "manual": "Manual match",
-    "auto": "Auto: MPFM within deviation limit, otherwise matched",
+    "matched": "Figures run in PROSPER (gradient match)",
+    "manual": "Manual figures only",
+    "auto": "Auto: MPFM within deviation limit, otherwise the figures run in PROSPER",
 }
 
 

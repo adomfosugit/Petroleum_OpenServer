@@ -37,6 +37,12 @@ def pull(well_row, year, month, settings, progress=None):
     return al.derive_parameters(run, well_row), warnings
 
 
+def manual_match(run, well_row, settings, progress=None):
+    """Run PROSPER once per day on the figures (manual where typed, else MPFM) on one opened model."""
+    with open_session(settings["mode"], well_row, settings.get("show_prosper", False)) as model:
+        return al.run_manual_match(run, model, well_row["nodal_string"], float(settings["tolerance"]), progress)
+
+
 def gradient_match(run, well_row, settings, progress=None):
     """Nodal BHP with the MPFM rates, then the gradient match, on one opened model."""
     with open_session(settings["mode"], well_row, settings.get("show_prosper", False)) as model:
