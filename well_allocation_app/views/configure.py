@@ -1,8 +1,8 @@
 """Settings, well master data and connection checks (live: PI + PROSPER only)."""
 import streamlit as st
 
-from core import allocation as al
-from core.config import NUMERIC_COLS, WELL_COLUMNS, save_settings, save_wells, wells_from_workbook
+from core.config import (NUMERIC_COLS, WELL_COLUMNS, WELLS_CSV, save_settings, save_wells,
+                         wells_from_workbook)
 from core.pi_client import pi_available
 from core.prosper import open_session, openserver_available
 from views import ui
@@ -10,11 +10,11 @@ from views import ui
 MODE = "live"
 
 s = ui.settings()
-if s.get("mode") != MODE:          # an older settings.json may still say "demo"
+if s.get("mode") != MODE:
     s["mode"] = MODE
     save_settings(s)
 W = ui.wells()
-ui.header("Configuration", "PI and PROSPER connections, conversion factors, matching defaults and the well list")
+ui.header("Configuration", "PI and PROSPER connections, unit conversions and the well list")
 
 pi_ok, pi_msg = pi_available()
 os_ok, os_msg = openserver_available()
@@ -28,6 +28,7 @@ with tab_c:
     with c1.container(border=True):
         st.markdown(f"**PI Data Archive** &nbsp; {'🟢' if pi_ok else '🔴'}")
         st.caption(pi_msg)
+        st.caption(f"Server: {s['pi_server'] or 'default'} · Time zone: {s['timezone']} · Interval: {s['pi_interval']}")
         if st.button("Test PI connection", disabled=not pi_ok):
             try:
                 import PIconnect as PI
@@ -41,12 +42,6 @@ with tab_c:
         st.caption("Run a single gradient calculation on the Test PROSPER tab.")
 
     with st.form("settings"):
-        st.subheader("PI data")
-        c1, c2, c3 = st.columns(3)
-        pi_server = c1.text_input("PI server", s["pi_server"], help="Leave blank to use the default PI server")
-        tz = c2.text_input("Time zone", s["timezone"])
-        interval = c3.text_input("Summary interval", s["pi_interval"], help="1d gives the workbook's daily averages")
-
         st.subheader("Unit conversion applied to PI values")
         c1, c2, c3 = st.columns(3)
         lc = c1.number_input("Liquid (oil and water)", value=float(s["liquid_conv"]), format="%.4f",
@@ -56,37 +51,18 @@ with tab_c:
         pc = c3.number_input("Pressure", value=float(s["pressure_conv"]), format="%.3f",
                              help="Workbook cell C18. 14.5 converts bar to psi.")
 
-        st.subheader("Gradient match")
-        c1, c2, c3 = st.columns(3)
-        tol = c1.number_input("Tolerance %", 0.01, 50.0, float(s["tolerance"]) * 100, 0.5,
-                              help="Workbook cell R5 (0.05 = 5 %)")
-        mi = c2.number_input("Max iterations per phase", 5, 5000, int(s["max_iterations"]), 5)
-        meth = c3.selectbox("Method", ["sequential", "binary_chop"],
-                            index=["sequential", "binary_chop"].index(s["match_method"]),
-                            format_func=lambda v: {"sequential": "Rate → GOR → WCT (workbook)",
-                                                   "binary_chop": "Binary chop on rate"}[v])
-        c1, c2, c3 = st.columns(3)
-        cmin = c1.number_input("Binary chop lower bound, × MPFM rate", 0.01, 1.0, float(s["chop_min_frac"]), 0.05)
-        cmax = c2.number_input("Binary chop upper bound, × MPFM rate", 1.0, 20.0, float(s["chop_max_frac"]), 0.25)
-        show = c3.checkbox("Show the PROSPER window while running", bool(s["show_prosper"]))
-
-        st.subheader("Export")
-        c1, c2 = st.columns([2, 1])
-        src = c1.selectbox("Default rates to export", list(al.SOURCES),
-                           index=list(al.SOURCES).index(s["export_source"]), format_func=lambda k: al.SOURCES[k])
-        thr = c2.number_input("Auto: MPFM deviation limit %", 0.1, 100.0, float(s["auto_threshold_pct"]), 0.5)
-
         if st.form_submit_button("Save settings", type="primary"):
-            s.update(mode=MODE, pi_server=pi_server.strip(), timezone=tz.strip(), pi_interval=interval.strip(),
-                     liquid_conv=lc, gas_conv=gc, pressure_conv=pc, tolerance=tol / 100, max_iterations=int(mi),
-                     match_method=meth, chop_min_frac=cmin, chop_max_frac=cmax, show_prosper=show,
-                     export_source=src, auto_threshold_pct=thr)
+            # PI server, time zone, interval and matching settings keep their saved values.
+            s.update(mode=MODE, liquid_conv=lc, gas_conv=gc, pressure_conv=pc)
             save_settings(s)
             st.toast("Settings saved")
             st.rerun()
 
 # ---------------------------------------------------------------- wells
 with tab_w:
+    if not WELLS_CSV.exists():
+        st.warning("These are placeholder tags, not your field's. Import your Allocation workbook below "
+                   "(or place your wells.csv in the config folder) to load the real Configuration Sheet.")
     st.markdown('<p class="wa-note">One row per well, the same columns as the workbook\'s Configuration Sheet. '
                 'Tags left blank are skipped. Edit in place, then save.</p>', unsafe_allow_html=True)
     cfg = {k: (st.column_config.NumberColumn(label) if k in NUMERIC_COLS else st.column_config.TextColumn(label))
@@ -99,7 +75,7 @@ with tab_w:
         save_wells(edited)
         st.toast(f"Saved {len(edited.dropna(subset=['well']))} wells")
         st.rerun()
-    with b.expander("Import from an Allocation workbook"):
+    with b.expander("Import from an Allocation workbook", expanded=not WELLS_CSV.exists()):
         up = st.file_uploader("Allocation .xlsm / .xlsx", type=["xlsm", "xlsx"])
         if up is not None:
             try:
