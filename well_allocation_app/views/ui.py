@@ -19,7 +19,7 @@ INK, MUTED, LINE, ACCENT = "#16242C", "#5B6B73", "#D5DDE1", "#0F5E6E"
 CSS = """
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@500;600;700&display=swap');
-:root { --ink:#16242C; --muted:#5B6B73; --line:#D5DDE1; --accent:#0F5E6E; --panel:#FFFFFF; --wash:#EAF0F2; }
+:root { --ink:#16242C; --muted:#5B6B73; --line:#D5DDE1; --accent:#0F5E6E; --panel:#FFFFFF; --wash:#EAF0F2; --done:#1E7A46; }
 .block-container, [data-testid="stMainBlockContainer"] { padding-top: 4.2rem; max-width: 1320px; }
 h1, h2, h3, .wa-title, .wa-fact b, [data-testid="stMetricValue"] {
   font-family: 'Barlow Semi Condensed', 'Source Sans', 'Source Sans Pro', sans-serif !important; letter-spacing: .005em; }
@@ -40,15 +40,15 @@ h2, h3 { font-weight: 600 !important; color: var(--ink); }
 .wa-rail { display:grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap:0; margin: .2rem 0 1.4rem; }
 .wa-step { border-top: 4px solid var(--line); padding:.45rem .2rem 0 0; color: var(--muted); font-size:.9rem; }
 .wa-step b { display:block; color: var(--ink); font-weight:600; font-size: .95rem; }
-.wa-step.done { border-top-color: var(--accent); }
-.wa-step.done b::after { content: "  ✓"; color: var(--accent); }
+.wa-step.done { border-top-color: var(--done); }
+.wa-step.done b::after { content: "  ✓"; color: var(--done); }
 @media (max-width: 720px) { .wa-rail { grid-template-columns: repeat(2, minmax(0,1fr)) !important; row-gap:.8rem; } }
 
 .wa-stephd { display:flex; align-items:center; gap:.7rem; margin:.1rem 0 .6rem; }
-.wa-num { width:1.9rem; height:1.9rem; border-radius:50%; display:inline-flex; align-items:center; justify-content:center;
-  font-family:'Barlow Semi Condensed','Source Sans',sans-serif; font-weight:700; font-size:1.05rem;
-  border:2px solid var(--accent); color: var(--accent); background: var(--panel); flex:none; }
-.wa-num.done { background: var(--accent); color:#fff; }
+.wa-pill { display:inline-flex; align-items:center; gap:.3rem; padding:.18rem .7rem; border-radius:999px; flex:none;
+  font-family:'Barlow Semi Condensed','Source Sans',sans-serif; font-weight:700; font-size:.82rem; letter-spacing:.08em;
+  text-transform:uppercase; border:1.5px solid var(--accent); color:var(--accent); background:var(--panel); }
+.wa-pill.done { background: var(--done); border-color: var(--done); color:#fff; }
 .wa-steptitle { font-family:'Barlow Semi Condensed','Source Sans',sans-serif; font-weight:600; font-size:1.45rem; color:var(--ink); }
 .wa-chip { display:inline-block; padding: .08rem .55rem; border-radius: 999px; font-size: .78rem;
   border:1px solid var(--line); color: var(--ink); background: var(--panel); }
@@ -161,5 +161,6 @@ def band(fig, x, lo, hi, name, fill):
 
 
 def step(n: int, title: str, done: bool = False):
-    st.markdown(f'<div class="wa-stephd"><span class="wa-num {"done" if done else ""}">{"✓" if done else n}</span>'
-                f'<span class="wa-steptitle">{title}</span></div>', unsafe_allow_html=True)
+    pill = '<span class="wa-pill done">Done ✓</span>' if done else f'<span class="wa-pill">Step {n}</span>'
+    st.markdown(f'<div class="wa-stephd">{pill}<span class="wa-steptitle">{title}</span></div>',
+                unsafe_allow_html=True)
