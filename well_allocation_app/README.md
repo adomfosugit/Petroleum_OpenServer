@@ -38,7 +38,7 @@ pip install PIconnect pywin32
 
 PROSPER is reached through your `openserver` package (`from openserver import OpenServer`) if it is installed, otherwise directly through the `PX32.OpenServer.1` COM object the VBA uses.
 
-**Before running, attach the Configuration Sheet:** Configuration → Wells → attach the sheet saved as CSV (header rows included, starting at the *Well* column), or the Allocation `.xlsm` itself. From the command line: `python tools/import_workbook.py ConfigurationSheet.csv`. The well list is saved to `config/wells.csv`, which is git-ignored, so tags and model paths never go to GitHub. There is no example well list: until a sheet is attached the app has no wells.
+**Before running, save the Configuration Sheet as CSV to `config/wells.csv`** (header rows included, starting at the *Well* column, exactly as Excel's *Save As → CSV* writes it). The app only reads this file and never writes to it; to change a well, edit the sheet and save the CSV again. `config/wells.csv` is git-ignored, so tags and model paths never go to GitHub. There is no example well list.
 
 Demo mode (**Configuration → Mode → Demo**) needs nothing beyond `requirements.txt`: it generates rates and uses a simple stand-in well model so the whole flow can be tried anywhere. Demo and live results are kept in separate folders under `data/`.
 

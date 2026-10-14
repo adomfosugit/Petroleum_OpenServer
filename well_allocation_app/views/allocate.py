@@ -24,7 +24,7 @@ mode = s["mode"]
 XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 if W.empty:
-    st.info("No wells loaded yet. Attach the Configuration Sheet (CSV) on the Configuration page → Wells.")
+    st.info("No wells loaded yet. Save the Configuration Sheet as CSV to config/wells.csv in the app folder, then refresh.")
     st.stop()
 
 

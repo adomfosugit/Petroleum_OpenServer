@@ -1,8 +1,9 @@
 """Settings, well master data and connection checks (live: PI + PROSPER only)."""
+from datetime import datetime
+
 import streamlit as st
 
-from core.config import (NUMERIC_COLS, WELL_COLUMNS, read_wells_csv, save_settings, save_wells,
-                         wells_from_workbook)
+from core.config import NUMERIC_COLS, WELL_COLUMNS, WELLS_CSV, save_settings
 from core.pi_client import pi_available
 from core.prosper import open_session, openserver_available
 from views import ui
@@ -60,40 +61,21 @@ with tab_c:
 
 # ---------------------------------------------------------------- wells
 with tab_w:
-    with st.container(border=True):
-        st.markdown("**Attach the Configuration Sheet**")
-        st.caption("The Configuration Sheet saved as CSV (header rows included), or the Allocation workbook itself. "
-                   "It replaces the current well list.")
-        up = st.file_uploader("Configuration Sheet", type=["csv", "xlsm", "xlsx"], label_visibility="collapsed")
-        if up is not None:
-            try:
-                new = (read_wells_csv(up) if up.name.lower().endswith(".csv") else wells_from_workbook(up))
-                if new.empty:
-                    st.error("No wells found. Check the file is the Configuration Sheet with wells in the first column.")
-                else:
-                    st.dataframe(new[["well", "template", "oil_tag", "thp_tag", "bhp_tag", "nodal_string",
-                                      "prosper_file"]], hide_index=True, width="stretch")
-                    if st.button(f"Load these {len(new)} wells", type="primary"):
-                        save_wells(new)
-                        st.toast(f"Loaded {len(new)} wells from {up.name}")
-                        st.rerun()
-            except Exception as exc:
-                st.error(f"Could not read {up.name}: {exc}")
-
-    if W.empty:
-        st.info("No wells loaded yet. Attach the Configuration Sheet above before running an allocation.")
+    # The Configuration Sheet CSV is yours: the app only reads it, it never writes to it.
+    if not WELLS_CSV.exists():
+        st.info(f"No Configuration Sheet found. Save the sheet as CSV (header rows included) to\n\n"
+                f"`{WELLS_CSV}`\n\nthen refresh this page.")
+    elif W.empty:
+        st.error(f"`{WELLS_CSV.name}` was found but no wells could be read from it. Check it is the Configuration "
+                 "Sheet saved as CSV, starting at the Well column.")
     else:
-        st.markdown(f'<p class="wa-note">{len(W)} wells loaded, the same columns as the Configuration Sheet. '
-                    'Tags left blank are skipped. Edit in place, then save.</p>', unsafe_allow_html=True)
+        mod = datetime.fromtimestamp(WELLS_CSV.stat().st_mtime).strftime("%d %b %Y %H:%M")
+        st.markdown(f'<p class="wa-note">{len(W)} wells read from <code>{WELLS_CSV}</code> (saved {mod}). '
+                    'Read-only here: to change a well, edit the Configuration Sheet and save the CSV again, '
+                    'then refresh.</p>', unsafe_allow_html=True)
         cfg = {k: (st.column_config.NumberColumn(label) if k in NUMERIC_COLS else st.column_config.TextColumn(label))
                for k, (label, _) in WELL_COLUMNS.items()}
-        cfg["template"] = st.column_config.SelectboxColumn(WELL_COLUMNS["template"][0], options=["Z1", "Z2", "Z3"])
-        edited = st.data_editor(W, column_config=cfg, num_rows="dynamic", width="stretch", height=520,
-                                hide_index=True, key="wells_editor")
-        if st.button("Save well list"):
-            save_wells(edited)
-            st.toast(f"Saved {len(edited.dropna(subset=['well']))} wells")
-            st.rerun()
+        st.dataframe(W, column_config=cfg, width="stretch", height=520, hide_index=True)
 
 # ---------------------------------------------------------------- PROSPER test
 with tab_t:
@@ -103,7 +85,7 @@ with tab_t:
     if not os_ok:
         st.warning(f"PROSPER is not reachable from this computer: {os_msg}")
     if W.empty:
-        st.info("Add a well first.")
+        st.info("No wells loaded: see the Wells tab.")
     else:
         with st.form("grd"):
             c = st.columns(5)

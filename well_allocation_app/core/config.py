@@ -148,8 +148,15 @@ def load_wells() -> pd.DataFrame:
 
 
 def save_wells(df: pd.DataFrame) -> None:
+    """Write a well list to config/wells.csv (used only by tools/import_workbook.py).
+
+    Refuses to write an empty list, so an existing Configuration Sheet is never wiped.
+    """
+    out = normalise_wells(df)
+    if out.empty:
+        raise ValueError("No wells to save; config/wells.csv was left unchanged.")
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    normalise_wells(df).to_csv(WELLS_CSV, index=False)
+    out.to_csv(WELLS_CSV, index=False)
 
 
 def wells_from_workbook(path_or_buffer) -> pd.DataFrame:
