@@ -36,9 +36,9 @@ pip install -r requirements.txt
 pip install PIconnect pywin32
 ```
 
-PROSPER is reached through your `openserver` package (`from openserver import OpenServer`) if it is installed, otherwise directly through the `PX32.OpenServer.1` COM object the VBA uses. Then load your real well list: **Configuration → Wells → Import from an Allocation workbook** (or `python tools/import_workbook.py Allocation.xlsm`). It is saved to `config/wells.csv`, which is git-ignored; until then the app uses `config/wells.example.csv`, which has the field's wells, zones and splits but placeholder tag names and model paths. Finally switch **Configuration → Mode** to *Live*.
+PROSPER is reached through your `openserver` package (`from openserver import OpenServer`) if it is installed, otherwise directly through the `PX32.OpenServer.1` COM object the VBA uses. Then load your real well list: **Configuration → Wells → Import from an Allocation workbook** (or `python tools/import_workbook.py Allocation.xlsm`). It is saved to `config/wells.csv`, which is git-ignored; until then the app uses `config/wells.example.csv`, which has the field's wells, zones and splits but placeholder tag names and model paths. The app starts in *Live* mode by default.
 
-Demo mode needs nothing beyond `requirements.txt`: it generates rates and uses a simple stand-in well model so the whole flow can be tried anywhere. Demo and live results are kept in separate folders under `data/`.
+Demo mode (**Configuration → Mode → Demo**) needs nothing beyond `requirements.txt`: it generates rates and uses a simple stand-in well model so the whole flow can be tried anywhere. Demo and live results are kept in separate folders under `data/`.
 
 ## Things that differ from the workbook on purpose
 

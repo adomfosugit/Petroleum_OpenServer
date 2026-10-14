@@ -55,7 +55,7 @@ NUMERIC_COLS = ["uz_pi", "mz_pi", "lz_pi", "liquid_factor", "gor_factor", "wct_f
                 "split_uz", "split_mz", "split_lz"]
 
 DEFAULT_SETTINGS: dict = {
-    "mode": "demo",                 # "demo" or "live"
+    "mode": "live",                 # "live" (PI + PROSPER) or "demo"
     "pi_server": "",                # blank = default PI server
     "timezone": "Africa/Accra",
     "pi_interval": "1d",

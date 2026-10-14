@@ -19,9 +19,9 @@ tab_c, tab_w, tab_t = st.tabs(["Settings", "Wells", "Test PROSPER"])
 with tab_c:
     with st.form("settings"):
         st.subheader("Data source")
-        mode = st.radio("Mode", ["demo", "live"], index=["demo", "live"].index(s["mode"]), horizontal=True,
-                        format_func=lambda v: {"demo": "Demo: synthetic data and a stand-in well model",
-                                               "live": "Live: PI and PROSPER on this computer"}[v])
+        mode = st.radio("Mode", ["live", "demo"], index=["live", "demo"].index(s["mode"]), horizontal=True,
+                        format_func=lambda v: {"live": "Live: PI and PROSPER on this computer",
+                                               "demo": "Demo: synthetic data and a stand-in well model"}[v])
         st.caption(f"PI: {pi_msg}.  PROSPER: {os_msg}.  Demo and live results are stored separately.")
         c1, c2, c3 = st.columns(3)
         pi_server = c1.text_input("PI server", s["pi_server"], help="Leave blank to use the default PI server")
