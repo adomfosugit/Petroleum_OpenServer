@@ -74,9 +74,8 @@ def _wells_cached(_mtime: float) -> pd.DataFrame:
 
 
 def wells() -> pd.DataFrame:
-    from core.config import WELLS_CSV, WELLS_EXAMPLE
-    src = WELLS_CSV if WELLS_CSV.exists() else WELLS_EXAMPLE
-    mtime = src.stat().st_mtime if src.exists() else 0.0
+    from core.config import WELLS_CSV
+    mtime = WELLS_CSV.stat().st_mtime if WELLS_CSV.exists() else 0.0
     return _wells_cached(mtime)
 
 

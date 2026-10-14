@@ -10,7 +10,7 @@ W = ui.wells()
 y, m, mk = ui.period()
 
 if W.empty:
-    st.info("No wells are configured yet. Import your Allocation workbook on the Configuration page.")
+    st.info("No wells loaded yet. Attach the Configuration Sheet (CSV) on the Configuration page → Wells.")
     st.stop()
 
 status = wf.status_for(s["mode"], mk, W)

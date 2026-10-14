@@ -7,14 +7,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from core import store  # noqa: E402
 from core import workflow as wf  # noqa: E402
-from core.config import DEFAULT_SETTINGS, Zone, load_wells, zones_for  # noqa: E402
+from core.config import DEFAULT_SETTINGS, Zone, read_wells_csv, zones_for  # noqa: E402
+
+FIXTURE = Path(__file__).parent / "fixtures" / "wells.csv"
 from core.rollup import all_wells_matrices  # noqa: E402
 
 
 @pytest.fixture
 def env(monkeypatch, tmp_path):
     monkeypatch.setattr(store, "DATA", tmp_path)
-    return {**DEFAULT_SETTINGS, "mode": "demo"}, load_wells()
+    return {**DEFAULT_SETTINGS, "mode": "demo"}, read_wells_csv(FIXTURE)
 
 
 def _matched(row, s):

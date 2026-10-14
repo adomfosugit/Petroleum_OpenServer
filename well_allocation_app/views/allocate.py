@@ -24,7 +24,7 @@ mode = s["mode"]
 XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 if W.empty:
-    st.info("No wells are configured yet. Add them on the Configuration page, or import your Allocation workbook there.")
+    st.info("No wells loaded yet. Attach the Configuration Sheet (CSV) on the Configuration page → Wells.")
     st.stop()
 
 

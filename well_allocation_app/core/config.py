@@ -7,6 +7,7 @@ Allocate macro, etc.).
 """
 from __future__ import annotations
 
+import io
 import json
 from dataclasses import dataclass
 from pathlib import Path
@@ -15,8 +16,7 @@ import pandas as pd
 
 ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = ROOT / "config"
-WELLS_CSV = CONFIG_DIR / "wells.csv"            # your real well list (git-ignored)
-WELLS_EXAMPLE = CONFIG_DIR / "wells.example.csv"  # placeholder tags, used until you save or import your own
+WELLS_CSV = CONFIG_DIR / "wells.csv"            # well list loaded from your Configuration Sheet (git-ignored)
 SETTINGS_JSON = CONFIG_DIR / "settings.json"
 
 # column -> (label shown in the UI, workbook column on 'Configuration Sheet ')
@@ -116,17 +116,19 @@ def _is_header_or_blank(first_cell) -> bool:
     return v in {"", "well"}
 
 
-def read_wells_csv(path) -> pd.DataFrame:
-    """Read a well CSV in either layout.
+def read_wells_csv(src) -> pd.DataFrame:
+    """Read a well CSV (a path or an uploaded file) in either layout.
 
     * App layout: one header row with the WELL_COLUMNS keys (what save_wells writes).
-    * Sheet layout: the Configuration Sheet copied/saved as CSV from column C onwards,
+    * Sheet layout: the Configuration Sheet saved as CSV from column C onwards,
       header rows included (Upper Zone / UZ ICV ... / units). Columns are taken by
       position C..AE, exactly like wells_from_workbook.
     """
-    raw = pd.read_csv(path, dtype=str, header=None, keep_default_na=False)
+    data = src.read() if hasattr(src, "read") else Path(src).read_bytes()
+    text = data.decode("utf-8-sig", errors="replace") if isinstance(data, bytes) else data
+    raw = pd.read_csv(io.StringIO(text), dtype=str, header=None, keep_default_na=False)
     if not raw.empty and "well" in {clean_text(v) for v in raw.iloc[0]}:
-        return normalise_wells(pd.read_csv(path, dtype=str))
+        return normalise_wells(pd.read_csv(io.StringIO(text), dtype=str))
     keys = list(WELL_COLUMNS)
     rows = []
     for _, r in raw.iterrows():
@@ -139,9 +141,9 @@ def read_wells_csv(path) -> pd.DataFrame:
 
 
 def load_wells() -> pd.DataFrame:
-    for path in (WELLS_CSV, WELLS_EXAMPLE):
-        if path.exists():
-            return read_wells_csv(path)
+    """The loaded well list, or an empty table until a Configuration Sheet is attached."""
+    if WELLS_CSV.exists():
+        return read_wells_csv(WELLS_CSV)
     return normalise_wells(pd.DataFrame(columns=list(WELL_COLUMNS)))
 
 

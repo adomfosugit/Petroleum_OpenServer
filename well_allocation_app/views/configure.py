@@ -1,7 +1,7 @@
 """Settings, well master data and connection checks (live: PI + PROSPER only)."""
 import streamlit as st
 
-from core.config import (NUMERIC_COLS, WELL_COLUMNS, WELLS_CSV, save_settings, save_wells,
+from core.config import (NUMERIC_COLS, WELL_COLUMNS, read_wells_csv, save_settings, save_wells,
                          wells_from_workbook)
 from core.pi_client import pi_available
 from core.prosper import open_session, openserver_available
@@ -60,33 +60,40 @@ with tab_c:
 
 # ---------------------------------------------------------------- wells
 with tab_w:
-    if not WELLS_CSV.exists():
-        st.warning("These are placeholder tags, not your field's. Import your Allocation workbook below "
-                   "(or place your wells.csv in the config folder) to load the real Configuration Sheet.")
-    st.markdown('<p class="wa-note">One row per well, the same columns as the workbook\'s Configuration Sheet. '
-                'Tags left blank are skipped. Edit in place, then save.</p>', unsafe_allow_html=True)
-    cfg = {k: (st.column_config.NumberColumn(label) if k in NUMERIC_COLS else st.column_config.TextColumn(label))
-           for k, (label, _) in WELL_COLUMNS.items()}
-    cfg["template"] = st.column_config.SelectboxColumn(WELL_COLUMNS["template"][0], options=["Z1", "Z2", "Z3"])
-    edited = st.data_editor(W, column_config=cfg, num_rows="dynamic", width="stretch", height=520,
-                            hide_index=True, key="wells_editor")
-    a, b = st.columns([1, 3])
-    if a.button("Save well list", type="primary", width="stretch"):
-        save_wells(edited)
-        st.toast(f"Saved {len(edited.dropna(subset=['well']))} wells")
-        st.rerun()
-    with b.expander("Import from an Allocation workbook", expanded=not WELLS_CSV.exists()):
-        up = st.file_uploader("Allocation .xlsm / .xlsx", type=["xlsm", "xlsx"])
+    with st.container(border=True):
+        st.markdown("**Attach the Configuration Sheet**")
+        st.caption("The Configuration Sheet saved as CSV (header rows included), or the Allocation workbook itself. "
+                   "It replaces the current well list.")
+        up = st.file_uploader("Configuration Sheet", type=["csv", "xlsm", "xlsx"], label_visibility="collapsed")
         if up is not None:
             try:
-                new = wells_from_workbook(up)
-                st.dataframe(new[["well", "template", "oil_tag", "thp_tag", "bhp_tag", "nodal_string"]],
-                             hide_index=True, width="stretch")
-                if st.button(f"Replace the well list with these {len(new)} wells"):
-                    save_wells(new)
-                    st.rerun()
+                new = (read_wells_csv(up) if up.name.lower().endswith(".csv") else wells_from_workbook(up))
+                if new.empty:
+                    st.error("No wells found. Check the file is the Configuration Sheet with wells in the first column.")
+                else:
+                    st.dataframe(new[["well", "template", "oil_tag", "thp_tag", "bhp_tag", "nodal_string",
+                                      "prosper_file"]], hide_index=True, width="stretch")
+                    if st.button(f"Load these {len(new)} wells", type="primary"):
+                        save_wells(new)
+                        st.toast(f"Loaded {len(new)} wells from {up.name}")
+                        st.rerun()
             except Exception as exc:
-                st.error(f"Could not read the workbook: {exc}")
+                st.error(f"Could not read {up.name}: {exc}")
+
+    if W.empty:
+        st.info("No wells loaded yet. Attach the Configuration Sheet above before running an allocation.")
+    else:
+        st.markdown(f'<p class="wa-note">{len(W)} wells loaded, the same columns as the Configuration Sheet. '
+                    'Tags left blank are skipped. Edit in place, then save.</p>', unsafe_allow_html=True)
+        cfg = {k: (st.column_config.NumberColumn(label) if k in NUMERIC_COLS else st.column_config.TextColumn(label))
+               for k, (label, _) in WELL_COLUMNS.items()}
+        cfg["template"] = st.column_config.SelectboxColumn(WELL_COLUMNS["template"][0], options=["Z1", "Z2", "Z3"])
+        edited = st.data_editor(W, column_config=cfg, num_rows="dynamic", width="stretch", height=520,
+                                hide_index=True, key="wells_editor")
+        if st.button("Save well list"):
+            save_wells(edited)
+            st.toast(f"Saved {len(edited.dropna(subset=['well']))} wells")
+            st.rerun()
 
 # ---------------------------------------------------------------- PROSPER test
 with tab_t:

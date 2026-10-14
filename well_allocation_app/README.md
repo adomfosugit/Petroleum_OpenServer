@@ -36,7 +36,9 @@ pip install -r requirements.txt
 pip install PIconnect pywin32
 ```
 
-PROSPER is reached through your `openserver` package (`from openserver import OpenServer`) if it is installed, otherwise directly through the `PX32.OpenServer.1` COM object the VBA uses. Then load your real well list: **Configuration → Wells → Import from an Allocation workbook** (or `python tools/import_workbook.py Allocation.xlsm`). It is saved to `config/wells.csv`, which is git-ignored; until then the app uses `config/wells.example.csv`, which has the field's wells, zones and splits but placeholder tag names and model paths. The app starts in *Live* mode by default.
+PROSPER is reached through your `openserver` package (`from openserver import OpenServer`) if it is installed, otherwise directly through the `PX32.OpenServer.1` COM object the VBA uses.
+
+**Before running, attach the Configuration Sheet:** Configuration → Wells → attach the sheet saved as CSV (header rows included, starting at the *Well* column), or the Allocation `.xlsm` itself. From the command line: `python tools/import_workbook.py ConfigurationSheet.csv`. The well list is saved to `config/wells.csv`, which is git-ignored, so tags and model paths never go to GitHub. There is no example well list: until a sheet is attached the app has no wells.
 
 Demo mode (**Configuration → Mode → Demo**) needs nothing beyond `requirements.txt`: it generates rates and uses a simple stand-in well model so the whole flow can be tried anywhere. Demo and live results are kept in separate folders under `data/`.
 
@@ -54,7 +56,7 @@ While porting, a few spreadsheet issues came up. The app does the evident intent
 ```
 app.py                 navigation and month picker
 views/                 the four pages + shared styling
-core/config.py         well table and settings (config/wells.csv or wells.example.csv, config/settings.json)
+core/config.py         well table and settings (config/wells.csv, config/settings.json)
 core/pi_client.py      PIconnect pull
 core/prosper.py        OpenServer session and the demo model
 core/allocation.py     derive, nodal, gradient match, export, zonal split

@@ -8,7 +8,9 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from core import allocation as al  # noqa: E402
-from core.config import load_wells, zones_for  # noqa: E402
+from core.config import read_wells_csv, zones_for  # noqa: E402
+
+FIXTURE = Path(__file__).parent / "fixtures" / "wells.csv"
 from core.prosper import demo_bhp  # noqa: E402
 from core.rollup import all_wells_matrices, normalise  # noqa: E402
 
@@ -78,7 +80,7 @@ def test_binary_chop_converges():
 
 def test_zonal_split_template_formulas():
     exp = pd.DataFrame({"liquid": [1000.0], "wct": [20.0], "gor": [1500.0]}, index=[pd.Timestamp("2026-07-01")])
-    wells = load_wells()
+    wells = read_wells_csv(FIXTURE)
     row = wells[wells.well == "J23-P"].iloc[0]
     t = al.zonal_split(exp, zones_for(row))
     assert t["oil"].iloc[0] == 800 and t["water"].iloc[0] == 200
