@@ -7,20 +7,29 @@ from pathlib import Path
 
 import streamlit as st
 
+from core.config import save_settings
 from views import ui
+
+MODE = "live"   # PI + PROSPER only
 
 st.set_page_config(page_title="Well Allocation", page_icon="🛢️", layout="wide")
 ui.inject_css()
+
+# Force live before anything reads the settings, so the sidebar and every page agree.
+s = ui.settings()
+if s.get("mode") != MODE:
+    s["mode"] = MODE
+    save_settings(s)
 
 if "year" not in st.session_state:
     st.session_state["year"], st.session_state["month"] = ui.default_period()
 
 VIEWS = Path(__file__).parent / "views"
 pages = [
-    st.Page(str(VIEWS / "allocate.py"), title="Well allocation", icon=":material/oil_barrel:", default=True),
+    st.Page(str(VIEWS / "configure.py"), title="Configuration", icon=":material/tune:", default=True),
+    st.Page(str(VIEWS / "allocate.py"), title="Well allocation", icon=":material/oil_barrel:"),
     st.Page(str(VIEWS / "field.py"), title="Field roll-up", icon=":material/stacked_line_chart:"),
     st.Page(str(VIEWS / "overview.py"), title="Month status", icon=":material/checklist:"),
-    st.Page(str(VIEWS / "configure.py"), title="Configuration", icon=":material/tune:"),
 ]
 
 with st.sidebar:
@@ -28,9 +37,6 @@ with st.sidebar:
     c1, c2 = st.columns([3, 2])
     c1.selectbox("Month", range(1, 13), format_func=lambda m: calendar.month_name[m], key="month")
     c2.number_input("Year", min_value=2010, max_value=2100, step=1, key="year")
-    s = ui.settings()
-    st.markdown(ui.mode_chip(s["mode"]), unsafe_allow_html=True)
-    if s["mode"] == "demo":
-        st.caption("Synthetic rates and a stand-in well model. Switch to live on the Configuration page.")
+    st.markdown(ui.mode_chip(MODE), unsafe_allow_html=True)
 
 st.navigation(pages, position="sidebar").run()
