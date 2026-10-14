@@ -14,7 +14,7 @@ from core import store
 from core import workflow as wf
 from core.config import Zone, zones_for
 from core.excel_export import well_workbook
-from core.pi_client import MEASUREMENTS, read_uploaded
+from core.pi_client import MEASUREMENTS
 from views import ui
 
 s = ui.settings()
@@ -111,23 +111,8 @@ with st.container(border=True):
             f'WCT {row["wct_factor"]:g}, GOR {row["gor_factor"]:g}).</span>', unsafe_allow_html=True)
         st.caption("Tags: " + ", ".join(f"{k.upper()} {row[col] or 'not set'}" for k, (col, _) in MEASUREMENTS.items()))
     with c2:
-        b1, b2 = st.columns(2)
-        pull_clicked = b1.button("Pull from PI" if mode == "live" else "Pull demo data",
+        pull_clicked = st.button("Pull from PI" if not has_data else "Pull from PI again",
                                  type="primary" if not has_data else "secondary", width="stretch")
-        with b2.popover("Upload a file", width="stretch"):
-            st.caption("CSV or Excel with columns date, oil, gas, water, thp, bhp in field units "
-                       "(stb/d, MMscf/d, psia).")
-            up = st.file_uploader("Daily data", type=["csv", "xlsx"], label_visibility="collapsed")
-            if up is not None and st.button("Use this file", width="stretch"):
-                try:
-                    raw = read_uploaded(up, y, m)
-                    new = al.empty_run(raw.index)
-                    for c in raw.columns:
-                        new[c] = raw[c]
-                    save(al.derive_parameters(new, row))
-                    st.rerun()
-                except Exception as exc:
-                    st.error(f"Could not read the file: {exc}")
     if pull_clicked:
         bar, cb = progress_runner("Connecting to PI")
         try:
