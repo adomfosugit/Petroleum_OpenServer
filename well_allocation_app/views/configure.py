@@ -151,25 +151,25 @@ with tab_a:
 # ---------------------------------------------------------------- reset runs
 with tab_r:
     y, m, mk = ui.period()
-    st.markdown('<p class="wa-note">Clears saved work so wells can be pulled and run again from scratch. '
-                'The Configuration Sheet, dated factor changes, fiscal (PPRS) data and the audit trail are kept.'
-                '</p>', unsafe_allow_html=True)
-    month_label = f"{ui.period_label()} only"
-    scope = "month" if st.radio("Clear", [month_label, "All months"], horizontal=True) == month_label else "all"
-    with_exp = st.checkbox("Also clear exports and zonal splits (the field reconciliation for those months)",
+    st.markdown(f'<p class="wa-note">Clears the saved work for <b>{ui.period_label()}</b> so its wells can be pulled '
+                'and run again from scratch. Other months, the Configuration Sheet, dated factor changes, fiscal '
+                '(PPRS) data and the audit trail are kept. To clear a different month, change the month in the '
+                'sidebar.</p>', unsafe_allow_html=True)
+    with_exp = st.checkbox(f"Also clear {ui.period_label()} exports and zonal splits (its field reconciliation)",
                            value=True)
-    n = store.count_saved(MODE, mk if scope == "month" else None)
-    st.caption(f"Saved now: {n['runs']} well run(s), {n['exports']} export(s).")
-    c1, c2, c3 = st.columns([3, 1.6, 1.2])
-    why = c1.text_input("Reason", key="reset_why", placeholder="e.g. re-run after PI backfill")
+    n = store.count_saved(MODE, mk)
+    st.caption(f"Saved for {ui.period_label()}: {n['runs']} well run(s), {n['exports']} export(s).")
+    c1, c2, c3 = st.columns([3, 1.6, 1.4])
     rv = st.session_state.setdefault("reset_ver", 0)
+    why = c1.text_input("Reason", key=f"reset_why_{rv}", placeholder="e.g. re-run after PI backfill")
     sure = c2.checkbox("I understand this can't be undone", key=f"reset_sure_{rv}")
     c3.write("")
-    if c3.button("Clear runs", type="primary", disabled=not (sure and why.strip()), width="stretch"):
-        done = store.clear_runs(MODE, mk if scope == "month" else None, with_exp, why)
+    if c3.button(f"Clear {ui.period_label()}", type="primary", width="stretch",
+                 disabled=not (sure and why.strip()) or not (n["runs"] or (with_exp and n["exports"]))):
+        done = store.clear_runs(MODE, mk, with_exp, why)
         st.session_state.pop("open_well", None)
         st.session_state["reset_ver"] = rv + 1
-        st.toast(f"Cleared {done['runs']} run(s) and {done['exports']} export(s)")
+        st.toast(f"Cleared {done['runs']} run(s) and {done['exports']} export(s) for {ui.period_label()}")
         st.rerun()
 
 # ---------------------------------------------------------------- PROSPER test
