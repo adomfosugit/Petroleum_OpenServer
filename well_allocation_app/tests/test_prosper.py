@@ -74,3 +74,25 @@ def test_errors_name_the_failing_string(fake):
 def test_missing_file_is_reported(fake):
     with pytest.raises(ProsperError, match="not found"):
         ProsperSession("P:/nowhere/J03-P.Out")
+
+
+def test_close_prosper_sends_shutdown_and_disconnects(monkeypatch):
+    import types
+
+    from core import prosper
+
+    sent = []
+
+    class FakeServer:
+        def connect(self):
+            sent.append("connect")
+
+        def DoCmd(self, cmd):
+            sent.append(cmd)
+
+        def disconnect(self):
+            sent.append("disconnect")
+
+    monkeypatch.setitem(sys.modules, "openserver", types.SimpleNamespace(OpenServer=FakeServer))
+    assert prosper.close_prosper() == "PROSPER closed"
+    assert sent == ["connect", "PROSPER.SHUTDOWN", "disconnect"]

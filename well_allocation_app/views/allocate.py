@@ -44,10 +44,22 @@ pick_default = wells.index(opened) if opened in wells else 0
 
 with st.container(border=True):
     ui.step(1, "Open well", done=bool(opened))
-    c1, c2, c3 = st.columns([2, 1.2, 3])
+    c1, c2, c4, c3 = st.columns([2, 1.2, 1.3, 2.5])
     pick = c1.selectbox("Well", wells, index=pick_default, label_visibility="collapsed")
     open_clicked = c2.button("Open well" if pick != opened else "Reopen", type="primary" if pick != opened else "secondary",
                              width="stretch")
+    if c4.button("Close PROSPER", width="stretch", disabled=not opened,
+                 help="Closes PROSPER and the model it has open. Saved pulls and results are kept; "
+                      "open the well again to carry on."):
+        try:
+            with st.spinner("Closing PROSPER"):
+                msg = wf.close_well(s)
+            st.session_state.pop("open_well", None)
+            st.session_state.pop("open_msg", None)
+            st.toast(msg)
+            st.rerun()
+        except Exception as exc:
+            st.error(str(exc))
     if open_clicked:
         with st.spinner(f"Opening {pick}"):
             try:

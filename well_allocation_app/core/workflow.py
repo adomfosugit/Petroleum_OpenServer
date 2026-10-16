@@ -10,7 +10,7 @@ from . import allocation as al
 from . import demo, store
 from .config import Zone, zones_for
 from .pi_client import month_index, pull_well_month
-from .prosper import open_session
+from .prosper import close_prosper, open_session
 
 
 def is_multi_zone(well_row) -> bool:
@@ -30,6 +30,13 @@ def icv_zone_keys(well_row) -> list[str]:
     """Zones whose ICV positions are pulled: every zone of a multi-zone well (none for single-zone)."""
     zones = zones_for(well_row)
     return [z.key.lower() for z in zones] if len(zones) > 1 else []
+
+
+def close_well(settings) -> str:
+    """Close PROSPER and the model opened by open_well. Returns a short status line."""
+    if settings["mode"] != "live":
+        return "Demo mode: no PROSPER to close."
+    return close_prosper()
 
 
 def pull(well_row, year, month, settings, progress=None):

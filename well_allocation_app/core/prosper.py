@@ -206,6 +206,33 @@ def demo_bhp(depth_ft, thp, rate, wct, gor) -> float:
     return float(thp + hydro + friction)
 
 
+def close_prosper() -> str:
+    """Close PROSPER, and the file it has open, from the program.
+
+    Sends PROSPER.SHUTDOWN through OpenServer (the same connection the gradient runs use), then
+    disconnects. Nothing is saved: the app never changes the model file, it only sets the gradient
+    inputs, so there is nothing to keep. Raises ProsperError if PROSPER could not be reached.
+    """
+    c = None
+    try:
+        try:
+            from openserver import OpenServer
+            c = OpenServer()
+        except ImportError:
+            c = _ComServer()
+        c.connect()
+        c.DoCmd("PROSPER.SHUTDOWN")
+    except Exception as exc:
+        raise ProsperError(f"Could not close PROSPER (is it running?): {exc}") from exc
+    finally:
+        try:
+            if c is not None:
+                c.disconnect()
+        except Exception:
+            pass
+    return "PROSPER closed"
+
+
 def open_session(mode: str, well_row, show: bool = False):
     if mode == "live":
         if not well_row.get("prosper_file"):
