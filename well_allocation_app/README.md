@@ -65,3 +65,13 @@ core/excel_export.py   per-well sheet and month workbook
 core/store.py          data/<mode>/runs, exports, pprs.csv
 tools/import_workbook.py   python tools/import_workbook.py Allocation.xlsm
 ```
+
+## ICV adjustments, dated factors, audit trail and resets
+
+- **ICV positions** (multi-zone wells): *Pull from PI* also pulls each zone's ICV tag (daily average, minimum and maximum, read as-is). A day is flagged when a valve moved within the day, or its average changed from the day before by more than the threshold in *Configuration → Settings → ICV adjustments* (default 0.5). Flags show in Pull data (table, metric and an ICV position chart with adjustment days shaded) and again at the zonal split. ICVs do not change the allocation yet.
+- **Dated factor changes**: *Well allocation → Pull data → Factors*. A liquid, WCT or GOR factor change applies from its date onwards; earlier days keep the Configuration Sheet value. The factor used each day is shown in the pulled-data table. Saved runs that no longer match the current factors are flagged with a *Re-apply factors* button (PROSPER results are cleared). Stored in `config/factor_changes.csv`.
+- **Configuration Sheet editing**: *Configuration → Configuration Sheet*. Edit, review the changed cells, give a reason and save. The previous sheet is copied to `config/history/` first, and an empty sheet is never written.
+- **Audit trail**: *Configuration → Audit trail* lists every factor change, sheet edit and reset with who, when and why (`config/audit_log.csv`, downloadable).
+- **Reset runs**: *Configuration → Reset runs* clears the selected month or all months (optionally with exports and zonal splits). The Configuration Sheet, factor changes, PPRS data and the audit trail are kept.
+
+`config/factor_changes.csv`, `config/audit_log.csv` and `config/history/` are git-ignored, like `config/wells.csv`.

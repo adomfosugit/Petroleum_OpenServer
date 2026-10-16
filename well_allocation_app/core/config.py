@@ -70,6 +70,7 @@ DEFAULT_SETTINGS: dict = {
     "export_source": "mpfm",        # mpfm | matched | manual | auto
     "auto_threshold_pct": 5.0,      # auto: use MPFM when nodal deviation <= this
     "show_prosper": False,
+    "icv_move_threshold": 0.5,      # ICV position change that counts as an adjustment
 }
 
 

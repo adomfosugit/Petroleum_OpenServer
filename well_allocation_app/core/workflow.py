@@ -26,15 +26,31 @@ def open_well(well_row, settings) -> str:
     return f"PROSPER model loaded: {well_row['prosper_file']}"
 
 
+def icv_zone_keys(well_row) -> list[str]:
+    """Zones whose ICV positions are pulled: every zone of a multi-zone well (none for single-zone)."""
+    zones = zones_for(well_row)
+    return [z.key.lower() for z in zones] if len(zones) > 1 else []
+
+
 def pull(well_row, year, month, settings, progress=None):
+    icv = icv_zone_keys(well_row)
     if settings["mode"] == "live":
-        raw, warnings = pull_well_month(well_row, year, month, settings, progress)
+        raw, warnings = pull_well_month(well_row, year, month, settings, progress, icv_zones=icv)
     else:
-        raw, warnings = demo.demo_pull(well_row, year, month), {}
+        raw, warnings = demo.demo_pull(well_row, year, month, icv_zones=icv), {}
     run = al.empty_run(month_index(year, month))
     for c in raw.columns:
         run[c] = raw[c]
-    return al.derive_parameters(run, well_row), warnings
+    run = al.derive_parameters(run, well_row)
+    if icv:
+        run = al.flag_icv_moves(run, icv, float(settings.get("icv_move_threshold", 0.5)))
+    return run, warnings
+
+
+def refactor(run, well_row):
+    """Re-derive liquid / WCT / GOR after a factor change, without pulling PI again.
+    PROSPER results are cleared because they were run on the old figures."""
+    return al.clear_results(al.derive_parameters(run, well_row))
 
 
 def manual_match(run, well_row, settings, progress=None):

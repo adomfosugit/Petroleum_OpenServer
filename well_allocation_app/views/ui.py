@@ -164,3 +164,52 @@ def step(n: int, title: str, done: bool = False):
     pill = '<span class="wa-pill done">Done ✓</span>' if done else f'<span class="wa-pill">Step {n}</span>'
     st.markdown(f'<div class="wa-stephd">{pill}<span class="wa-steptitle">{title}</span></div>',
                 unsafe_allow_html=True)
+
+
+ZONE_COLORS = {"uz": "#2B5C9E", "mz": "#D08A2A", "lz": "#1E9A8A"}
+
+
+def icv_chart(run: pd.DataFrame, zone_keys, zone_names: dict | None = None, height: int = 320) -> go.Figure:
+    """ICV position per zone as a step line, with the day's min-max range and adjustment days shaded."""
+    zone_names = zone_names or {}
+    fig = go.Figure()
+    x = run.index
+    for z in zone_keys:
+        color = ZONE_COLORS.get(z, INK)
+        name = zone_label(z, zone_names.get(z, ""))
+        lo, hi = run[f"icv_{z}_min"].astype(float), run[f"icv_{z}_max"].astype(float)
+        if (hi - lo).abs().gt(0).any():
+            fig.add_trace(go.Scatter(x=x, y=hi, mode="lines", line=dict(width=0, shape="hv", color=color),
+                                     hoverinfo="skip", showlegend=False, legendgroup=z))
+            fig.add_trace(go.Scatter(x=x, y=lo, mode="lines", line=dict(width=0, shape="hv", color=color),
+                                     fill="tonexty", fillcolor=_rgba(color, 0.15), hoverinfo="skip",
+                                     showlegend=False, legendgroup=z))
+        fig.add_trace(go.Scatter(
+            x=x, y=run[f"icv_{z}"], name=name, mode="lines+markers", legendgroup=z,
+            line=dict(color=color, width=2.2, shape="hv"), marker=dict(size=5, color=color),
+            customdata=list(zip(lo, hi)),
+            hovertemplate="avg %{y:.2f}  (min %{customdata[0]:.2f}, max %{customdata[1]:.2f})<extra>" + name + "</extra>",
+        ))
+    for d, zones in run["icv_moved"].dropna().items():
+        fig.add_vrect(x0=d - pd.Timedelta(hours=12), x1=d + pd.Timedelta(hours=12), fillcolor="#C0392B",
+                      opacity=0.10, line_width=0, annotation_text=f"{zones} moved", annotation_position="top left",
+                      annotation=dict(font=dict(size=11, color="#8E2A1F")))
+    fig = base_layout(fig, height, "ICV position")
+    fig.update_layout(title=dict(text="ICV positions (shaded: adjustment days)", x=0, font=dict(size=14)),
+                      margin=dict(t=56))
+    return fig
+
+
+def zone_label(key: str, name: str = "") -> str:
+    """'UZ MH4' rather than 'UZ UZ MH4' when the zone name already starts with the interval."""
+    k = key.upper()
+    name = (name or "").strip()
+    if not name or name.upper() == k:
+        return k
+    return name if name.upper().startswith(k) else f"{k} {name}"
+
+
+def _rgba(hex_color: str, alpha: float) -> str:
+    h = hex_color.lstrip("#")
+    r, g, b = (int(h[i:i + 2], 16) for i in (0, 2, 4))
+    return f"rgba({r},{g},{b},{alpha})"

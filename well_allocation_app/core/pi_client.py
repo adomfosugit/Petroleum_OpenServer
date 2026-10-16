@@ -21,6 +21,8 @@ MEASUREMENTS: dict[str, tuple[str, str]] = {
     "bhp": ("bhp_tag", "pressure_conv"),
 }
 UNITS = {"oil": "stb/d", "gas": "MMscf/d", "water": "stb/d", "thp": "psia", "bhp": "psia"}
+# zone key -> well-table column holding that zone's ICV position tag (read as-is, no conversion)
+ICV_TAGS = {"uz": "uz_icv_tag", "mz": "mz_icv_tag", "lz": "lz_icv_tag"}
 
 
 def pi_available() -> tuple[bool, str]:
@@ -41,28 +43,48 @@ def month_index(year: int, month: int) -> pd.DatetimeIndex:
     return pd.date_range(start, end - pd.Timedelta(days=1), freq="D", name="date")
 
 
-def pull_well_month(well_row: pd.Series, year: int, month: int, settings: dict,
-                    progress=None) -> tuple[pd.DataFrame, dict[str, str]]:
-    """Pull oil, gas, water, THP and BHP for one well for one month.
+def _daily(point, start, end, interval, summary_type, idx) -> pd.Series:
+    from PIconnect.PIConsts import CalculationBasis
 
-    Returns a frame indexed by day with columns oil/gas/water/thp/bhp (already
-    converted to field units) and a dict of per-measurement warnings.
+    summ = point.summaries(start.strftime("%Y-%m-%d %H:%M"), end.strftime("%Y-%m-%d %H:%M"), interval,
+                           summary_type, CalculationBasis.TIME_WEIGHTED)
+    col = summ.iloc[:, 0]
+    for name in summ.columns:
+        if str(name).upper() in {"AVERAGE", "MINIMUM", "MAXIMUM"}:
+            col = summ[name]
+            break
+    ser = pd.to_numeric(col, errors="coerce")
+    ser.index = pd.DatetimeIndex(ser.index)
+    if ser.index.tz is not None:
+        ser.index = ser.index.tz_localize(None)
+    return ser.groupby(ser.index.normalize()).mean().reindex(idx)
+
+
+def pull_well_month(well_row: pd.Series, year: int, month: int, settings: dict,
+                    progress=None, icv_zones=()) -> tuple[pd.DataFrame, dict[str, str]]:
+    """Pull oil, gas, water, THP and BHP for one well for one month, plus the ICV positions of icv_zones.
+
+    Returns a frame indexed by day with columns oil/gas/water/thp/bhp (already converted to field
+    units), icv_<z>/icv_<z>_min/icv_<z>_max for each ICV zone, and a dict of warnings.
     """
     import PIconnect as PI
-    from PIconnect.PIConsts import CalculationBasis, SummaryType
+    from PIconnect.PIConsts import SummaryType
 
     PI.PIConfig.DEFAULT_TIMEZONE = settings.get("timezone", "Africa/Accra")
     start, end = month_bounds(year, month)
     idx = month_index(year, month)
+    interval = settings.get("pi_interval", "1d")
     out = pd.DataFrame(index=idx)
     warnings: dict[str, str] = {}
+    icv_zones = [z for z in icv_zones if z in ICV_TAGS]
+    n_steps = len(MEASUREMENTS) + len(icv_zones)
 
     server_name = clean_text(settings.get("pi_server"))
     server_ctx = PI.PIServer(server=server_name) if server_name else PI.PIServer()
     with server_ctx as server:
         for i, (key, (tag_col, conv_key)) in enumerate(MEASUREMENTS.items()):
             if progress:
-                progress(i / len(MEASUREMENTS), f"Pulling {key}")
+                progress(i / n_steps, f"Pulling {key}")
             tag = clean_text(well_row.get(tag_col))
             if not tag:
                 warnings[key] = "No tag configured"
@@ -73,23 +95,30 @@ def pull_well_month(well_row: pd.Series, year: int, month: int, settings: dict,
                 warnings[key] = f"Tag {tag} not found on {server.server_name}"
                 out[key] = float("nan")
                 continue
-            summ = points[0].summaries(
-                start.strftime("%Y-%m-%d %H:%M"),
-                end.strftime("%Y-%m-%d %H:%M"),
-                settings.get("pi_interval", "1d"),
-                SummaryType.AVERAGE,
-                CalculationBasis.TIME_WEIGHTED,
-            )
-            col = summ["AVERAGE"] if "AVERAGE" in summ else summ.iloc[:, 0]
-            ser = pd.to_numeric(col, errors="coerce") * float(settings[conv_key])
-            ser.index = pd.DatetimeIndex(ser.index)
-            if ser.index.tz is not None:
-                ser.index = ser.index.tz_localize(None)
-            ser = ser.groupby(ser.index.normalize()).mean()
-            out[key] = ser.reindex(idx)
+            out[key] = _daily(points[0], start, end, interval, SummaryType.AVERAGE, idx) * float(settings[conv_key])
             bad = int(out[key].isna().sum())
             if bad:
                 warnings[key] = f"{bad} day(s) with no good data"
+
+        for j, z in enumerate(icv_zones):
+            if progress:
+                progress((len(MEASUREMENTS) + j) / n_steps, f"Pulling {z.upper()} ICV")
+            cols = [f"icv_{z}", f"icv_{z}_min", f"icv_{z}_max"]
+            tag = clean_text(well_row.get(ICV_TAGS[z]))
+            label = f"{z.upper()} ICV"
+            if not tag:
+                warnings[label] = "No tag configured"
+                continue
+            points = server.search(tag)
+            if not points:
+                warnings[label] = f"Tag {tag} not found on {server.server_name}"
+                continue
+            for col, stype in zip(cols, (SummaryType.AVERAGE, SummaryType.MINIMUM, SummaryType.MAXIMUM)):
+                out[col] = _daily(points[0], start, end, interval, stype, idx)
+            if out[cols[0]].isna().all():
+                warnings[label] = f"Tag {tag} returned no numeric positions (digital states?)"
+            elif out[cols[0]].isna().any():
+                warnings[label] = f"{int(out[cols[0]].isna().sum())} day(s) with no ICV data"
     if progress:
         progress(1.0, "Done")
     return out, warnings

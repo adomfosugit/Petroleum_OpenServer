@@ -14,7 +14,8 @@ from core import store
 from core import workflow as wf
 from core.config import Zone, zones_for
 from core.excel_export import well_workbook
-from core.pi_client import MEASUREMENTS
+from core import factors as fx
+from core.pi_client import ICV_TAGS, MEASUREMENTS, month_index
 from views import ui
 
 s = ui.settings()
@@ -120,14 +121,18 @@ COL_CFG = {
     "match_iters": _n("Iterations", format="%d"), "match_ok": st.column_config.CheckboxColumn("Within tol."),
     "manual_liquid": _n("Manual liquid", format="%.0f"), "manual_wct": _n("Manual WCT %", format="%.2f"),
     "manual_gor": _n("Manual GOR", format="%.0f"),
+    "f_liquid": _n("Liquid factor", format="%.4g"), "f_wct": _n("WCT factor", format="%.4g"),
+    "f_gor": _n("GOR factor", format="%.4g"),
 }
-PULL_COLS = ["oil", "gas", "water", "liquid", "wct", "gor", "thp", "bhp"]
+PULL_COLS = ["oil", "gas", "water", "f_liquid", "liquid", "f_wct", "wct", "f_gor", "gor", "thp", "bhp"]
 CALC_COLS = ["thp", "bhp", "liquid", "wct", "gor", "bhp_nodal", "nodal_dev_pct",
              "match_bhp", "match_liquid", "match_wct", "match_gor", "match_err_pct", "match_phase",
              "match_iters", "match_ok", "manual_liquid", "manual_wct", "manual_gor"]
 
 
 # ================================================================ 2. pull data
+icv_keys = wf.icv_zone_keys(row)
+zone_name = {z.key.lower(): z.name for z in zones}
 with st.container(border=True):
     ui.step(2, "Pull data", done=has_data)
     c1, c2 = st.columns([3, 2])
@@ -135,9 +140,12 @@ with st.container(border=True):
         st.markdown(
             f'<span class="wa-note">Daily time-weighted averages for {ui.period_label()}, converted with '
             f'liquid ×{s["liquid_conv"]:g}, gas ×{s["gas_conv"]:g} and pressure ×{s["pressure_conv"]:g}. '
-            f'Liquid, WCT and GOR then use this well\'s factors (liquid {row["liquid_factor"]:g}, '
-            f'WCT {row["wct_factor"]:g}, GOR {row["gor_factor"]:g}).</span>', unsafe_allow_html=True)
-        st.caption("Tags: " + ", ".join(f"{k.upper()} {row[col] or 'not set'}" for k, (col, _) in MEASUREMENTS.items()))
+            f'Liquid, WCT and GOR are then multiplied by this well\'s factors for each day '
+            f'(Configuration Sheet values, or a dated change; see <b>Factors</b> below).</span>',
+            unsafe_allow_html=True)
+        tags = [f"{k.upper()} {row[col] or 'not set'}" for k, (col, _) in MEASUREMENTS.items()]
+        tags += [f"{z.upper()} ICV {row[ICV_TAGS[z]] or 'not set'}" for z in icv_keys]
+        st.caption("Tags: " + ", ".join(tags))
     with c2:
         pull_clicked = st.button("Pull from PI" if not has_data else "Pull from PI again",
                                  type="primary" if not has_data else "secondary", width="stretch")
@@ -157,6 +165,82 @@ with st.container(border=True):
             st.error(f"PI pull failed: {exc}")
     for k, v in st.session_state.pop("pull_warnings", {}).items():
         st.warning(f"{k.upper()}: {v}")
+
+    # ---- factors: config values plus dated changes ----------------------------
+    month_days = month_index(y, m)
+    fac_month = fx.daily_factors(row, month_days)
+    changes = fx.load_changes(well)
+    in_month = changes[(changes["effective_from"] >= month_days[0]) & (changes["effective_from"] <= month_days[-1])]
+    stale = False
+    if has_data:
+        cur = run[["f_liquid", "f_wct", "f_gor"]].astype(float)
+        stale = not np.allclose(cur.values, fac_month.reindex(run.index).values, equal_nan=False) \
+            if cur.notna().all().all() else True
+    label = "Factors" + (f"  ·  {len(in_month)} change(s) this month" if len(in_month) else "")
+    with st.expander(label, expanded=bool(len(in_month)) or stale):
+        st.markdown('<span class="wa-note">The Configuration Sheet factor applies until a dated change; a change '
+                    'applies from its date onwards (until the next change). Changes are kept in the audit trail.'
+                    '</span>', unsafe_allow_html=True)
+        fc1, fc2 = st.columns([2, 3])
+        with fc1:
+            st.markdown(f"**{ui.period_label()}**")
+            st.dataframe(fx.factor_periods(fac_month), hide_index=True, width="stretch", column_config={
+                "Liquid": _n(format="%.4g"), "WCT": _n(format="%.4g"), "GOR": _n(format="%.4g")})
+        with fc2:
+            st.markdown(f"**Dated changes for {well}**")
+            if changes.empty:
+                st.caption("None. Every day uses the Configuration Sheet factors "
+                           f"(liquid {row['liquid_factor']:g}, WCT {row['wct_factor']:g}, GOR {row['gor_factor']:g}).")
+            else:
+                ch = changes.assign(effective_from=changes["effective_from"].dt.date,
+                                    factor=changes["factor"].map(fx.FACTOR_LABELS),
+                                    recorded_at=changes["recorded_at"].str.replace("T", " "))
+                st.dataframe(ch[["effective_from", "factor", "value", "recorded_by", "recorded_at", "reason"]],
+                             hide_index=True, width="stretch", column_config={
+                                 "effective_from": st.column_config.DateColumn("From"),
+                                 "factor": "Factor", "value": _n("Value", format="%.4g"),
+                                 "recorded_by": "By", "recorded_at": "Recorded", "reason": "Reason"})
+        with st.form(f"fchg_{well}", clear_on_submit=True):
+            f1, f2, f3, f4 = st.columns([1.4, 1, 1.2, 3])
+            fac = f1.selectbox("Factor", list(fx.FACTORS), format_func=lambda k: fx.FACTOR_LABELS[k])
+            val = f2.number_input("New value", min_value=0.0, value=1.0, step=0.01, format="%.4f")
+            eff = f3.date_input("From", value=month_days[0].date(), format="DD/MM/YYYY")
+            why = f4.text_input("Reason", placeholder="e.g. MPFM recalibrated")
+            if st.form_submit_button("Add factor change", type="primary"):
+                try:
+                    before = fx.daily_factors(row, pd.DatetimeIndex([pd.Timestamp(eff)]))[f"f_{fac}"].iloc[0]
+                    fx.add_change(well, fac, val, eff, why, old_value=before)
+                    if has_data:
+                        save(wf.refactor(run, row))
+                    st.toast(f"{fx.FACTOR_LABELS[fac]} {val:g} from {eff:%d %b %Y} saved"
+                             + (". Run PROSPER again for the new figures." if has_match else ""))
+                    st.rerun()
+                except ValueError as exc:
+                    st.error(str(exc))
+        if not changes.empty:
+            r1, r2, r3 = st.columns([2.4, 3, 1.2])
+            opts = {r["id"]: f"{r['effective_from']:%d %b %Y} · {fx.FACTOR_LABELS[r['factor']]} {r['value']:g}"
+                    for _, r in changes.iterrows()}
+            rid = r1.selectbox("Remove a change", list(opts), format_func=opts.get, key=f"rm_{well}")
+            rwhy = r2.text_input("Reason for removing", key=f"rmwhy_{well}")
+            r3.write("")
+            if r3.button("Remove", key=f"rmbtn_{well}", width="stretch"):
+                try:
+                    fx.delete_change(rid, rwhy)
+                    if has_data:
+                        save(wf.refactor(run, row))
+                    st.rerun()
+                except ValueError as exc:
+                    st.error(str(exc))
+
+    if stale:
+        w1, w2 = st.columns([4, 1.3])
+        w1.warning("The saved figures for this month were derived with different factors from the ones that now "
+                   "apply (a dated change or a Configuration Sheet edit). Re-apply them to update liquid, WCT and "
+                   "GOR; PROSPER results will be cleared.")
+        if w2.button("Re-apply factors", type="primary", width="stretch"):
+            save(wf.refactor(run, row))
+            st.rerun()
 
     if has_data:
         x = run.index
@@ -186,6 +270,37 @@ with st.container(border=True):
             fig = ui.base_layout(fig, 260, "psia")
             fig.update_layout(title=dict(text="Pressures", x=0, font=dict(size=14)), margin=dict(t=56))
             b.plotly_chart(fig, width="stretch")
+
+        # ---- ICV positions (multi-zone wells) ----------------------------------
+        if icv_keys:
+            st.divider()
+            st.markdown("**ICV positions**")
+            have_icv = [z for z in icv_keys if run[f"icv_{z}"].notna().any()]
+            flagged = run["icv_moved"].dropna()
+            if not have_icv:
+                st.info("No ICV positions for this month. Check the ICV tags in the Configuration Sheet, then "
+                        "pull again.")
+            else:
+                i1, i2 = st.columns([1, 3])
+                i1.metric("Days with ICV adjustments", f"{len(flagged)}")
+                if len(flagged):
+                    i2.warning("ICV adjusted on " + "; ".join(f"{d:%d %b} ({v})" for d, v in flagged.items())
+                               + ". Check the zonal split factors for the days after each adjustment.")
+                else:
+                    i2.success(f"No ICV adjustments in {ui.period_label()} "
+                               f"(threshold {float(s.get('icv_move_threshold', 0.5)):g}).")
+                icv_cols, icv_cfg = [], {"icv_moved": st.column_config.TextColumn("Adjusted")}
+                for z in have_icv:
+                    nm = ui.zone_label(z, zone_name.get(z, ""))
+                    icv_cols += [f"icv_{z}", f"icv_{z}_min", f"icv_{z}_max"]
+                    icv_cfg[f"icv_{z}"] = _n(f"{nm} avg", format="%.2f")
+                    icv_cfg[f"icv_{z}_min"] = _n(f"{z.upper()} min", format="%.2f")
+                    icv_cfg[f"icv_{z}_max"] = _n(f"{z.upper()} max", format="%.2f")
+                icv_tab = daily(run, icv_cols + ["icv_moved"])
+                icv_tab["icv_moved"] = icv_tab["icv_moved"].fillna("")
+                st.dataframe(icv_tab, column_config=icv_cfg, width="stretch", height=280)
+                if st.toggle("Show ICV plot", value=True, key=f"plots_icv_{mk}_{well}"):
+                    st.plotly_chart(ui.icv_chart(run, have_icv, zone_name), width="stretch")
 
 if not has_data:
     st.stop()
@@ -324,6 +439,10 @@ with st.container(border=True):
     st.markdown(f'<span class="wa-note">Each zone gets the well\'s oil, gas and water times its factor. Defaults come '
                 f'from the well configuration (template {row["template"]}); adjust them here for this month if needed. '
                 f'Factors should add up to 1.</span>', unsafe_allow_html=True)
+    icv_flags = run["icv_moved"].dropna()
+    if len(icv_flags):
+        st.warning("ICV adjustments this month: " + "; ".join(f"{d:%d %b} ({v})" for d, v in icv_flags.items())
+                   + ". The factors below apply to the whole month, so check they still hold after each adjustment.")
     saved = {z["key"]: z["split"] for z in exp_meta.get("zones", [])} if split_done else {}
     ztab = pd.DataFrame([{"Interval": z.key, "Zone": z.name, "Factor": saved.get(z.key, z.split)} for z in zones])
     c1, c2 = st.columns([2, 3])

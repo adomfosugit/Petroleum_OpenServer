@@ -5,3 +5,6 @@ data/
 .venv/
 config/settings.json
 config/wells.csv
+config/factor_changes.csv
+config/audit_log.csv
+config/history/

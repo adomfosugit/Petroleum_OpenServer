@@ -24,29 +24,74 @@ RUN_COLUMNS = [
     "match_bhp", "match_liquid", "match_wct", "match_gor",  # gradient match
     "match_err_pct", "match_phase", "match_iters", "match_ok",
     "manual_liquid", "manual_wct", "manual_gor",          # manual match
+    "f_liquid", "f_wct", "f_gor",                          # factors applied that day (config or dated change)
+    "icv_uz", "icv_uz_min", "icv_uz_max",                  # ICV position: daily average, min, max
+    "icv_mz", "icv_mz_min", "icv_mz_max",
+    "icv_lz", "icv_lz_min", "icv_lz_max",
+    "icv_moved",                                           # zones whose ICV moved that day, e.g. "MZ, LZ"
 ]
+TEXT_COLUMNS = ("match_phase", "match_ok", "icv_moved")
+ICV_ZONES = ("uz", "mz", "lz")
 
 
 def empty_run(index: pd.DatetimeIndex) -> pd.DataFrame:
     df = pd.DataFrame(index=index, columns=RUN_COLUMNS, dtype="float64")
     df["match_phase"] = df["match_phase"].astype("object")
     df["match_ok"] = df["match_ok"].astype("object")
+    df["icv_moved"] = df["icv_moved"].astype("object")
     return df
 
 
-def derive_parameters(run: pd.DataFrame, well_row: pd.Series) -> pd.DataFrame:
-    """Liquid = (Oil + Water) x factor;  WCT % = Water/(Oil+Water) x 100 x factor;  GOR = Gas x 1e6 / Oil x factor."""
+def derive_parameters(run: pd.DataFrame, well_row: pd.Series, factors: pd.DataFrame | None = None) -> pd.DataFrame:
+    """Liquid = (Oil + Water) x factor;  WCT % = Water/(Oil+Water) x 100 x factor;  GOR = Gas x 1e6 / Oil x factor.
+
+    The factors are taken day by day: the Configuration Sheet value, replaced from the date of any
+    dated factor change onwards (core.factors). The factor used on each day is kept in f_liquid/f_wct/f_gor.
+    """
+    from .factors import daily_factors
+
     run = run.copy()
-    lf = _num(well_row.get("liquid_factor"), 1.0)
-    wf = _num(well_row.get("wct_factor"), 1.0)
-    gf = _num(well_row.get("gor_factor"), 1.0)
+    f = daily_factors(well_row, run.index) if factors is None else factors.reindex(run.index)
+    run["f_liquid"], run["f_wct"], run["f_gor"] = f["f_liquid"].values, f["f_wct"].values, f["f_gor"].values
     oil, gas, water = run["oil"].astype(float), run["gas"].astype(float), run["water"].astype(float)
     liq = oil + water
     with np.errstate(divide="ignore", invalid="ignore"):
-        run["liquid"] = liq * lf
-        run["wct"] = (water / liq * 100.0) * wf
-        run["gor"] = (gas * 1e6 / oil) * gf
+        run["liquid"] = liq * run["f_liquid"]
+        run["wct"] = (water / liq * 100.0) * run["f_wct"]
+        run["gor"] = (gas * 1e6 / oil) * run["f_gor"]
     return run.replace([np.inf, -np.inf], np.nan)
+
+
+def clear_results(run: pd.DataFrame) -> pd.DataFrame:
+    """Drop PROSPER results (they no longer match the figures after a factor change)."""
+    run = run.copy()
+    for c in ["bhp_nodal", "nodal_dev_pct", "match_bhp", "match_liquid", "match_wct", "match_gor",
+              "match_err_pct", "match_iters"]:
+        run[c] = np.nan
+    run["match_phase"] = None
+    run["match_ok"] = None
+    return run
+
+
+def flag_icv_moves(run: pd.DataFrame, zone_keys, threshold: float = 0.5) -> pd.DataFrame:
+    """Flag days a zone's ICV was adjusted: it moved during the day (max - min > threshold),
+    or its daily average changed from the previous day by more than the threshold
+    (used when min/max are missing, or the move fell exactly on the day boundary)."""
+    run = run.copy()
+    moved = pd.Series([[] for _ in range(len(run))], index=run.index, dtype=object)
+    for z in zone_keys:
+        avg = pd.to_numeric(run[f"icv_{z}"], errors="coerce")
+        lo = pd.to_numeric(run[f"icv_{z}_min"], errors="coerce")
+        hi = pd.to_numeric(run[f"icv_{z}_max"], errors="coerce")
+        intra = ((hi - lo) > threshold).fillna(False)
+        # a change from the day before counts only if the day before had no move within it
+        # (otherwise the change is just the rest of that move showing in today's average)
+        step = (avg.diff().abs() > threshold).fillna(False) & ~intra.shift(1, fill_value=False)
+        hit = intra | step
+        for d in run.index[hit]:
+            moved[d] = moved[d] + [z.upper()]
+    run["icv_moved"] = [", ".join(v) if v else None for v in moved]
+    return run
 
 
 def _num(v, default):

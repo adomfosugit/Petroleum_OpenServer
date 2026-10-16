@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from .allocation import RUN_COLUMNS
+from .allocation import RUN_COLUMNS, TEXT_COLUMNS
 from .config import ROOT
 
 DATA = ROOT / "data"
@@ -66,9 +66,10 @@ def load_run(mode, mk, well) -> pd.DataFrame | None:
             df[c] = pd.NA
     df = df[RUN_COLUMNS]
     for c in RUN_COLUMNS:
-        if c not in ("match_phase", "match_ok"):
+        if c not in TEXT_COLUMNS:
             df[c] = pd.to_numeric(df[c], errors="coerce")
     df["match_phase"] = df["match_phase"].astype("object")
+    df["icv_moved"] = df["icv_moved"].map(lambda v: v if isinstance(v, str) and v.strip() else None).astype("object")
     df["match_ok"] = df["match_ok"].map(lambda v: str(v).lower() == "true" if pd.notna(v) else pd.NA).astype("object")
     return df
 
@@ -162,3 +163,34 @@ def parse_pprs_upload(file) -> pd.DataFrame:
         if c not in out:
             out[c] = float("nan")
     return out[list(PPRS_COLUMNS)]
+
+
+# ---- reset --------------------------------------------------------------------
+def count_saved(mode, mk: str | None = None) -> dict[str, int]:
+    """How many well runs and exports are saved, for one month or for all months."""
+    r = root(mode)
+    pat = f"{mk}/*.csv" if mk else "*/*.csv"
+    return {"runs": len(list((r / "runs").glob(pat))), "exports": len(list((r / "exports").glob(pat)))}
+
+
+def clear_runs(mode, mk: str | None = None, include_exports: bool = True, reason: str = "") -> dict[str, int]:
+    """Delete saved runs (and by default exports and zonal splits) for one month, or all months if mk is None.
+    Fiscal (PPRS) data, the Configuration Sheet and dated factor changes are kept. The reset is audit-logged."""
+    import shutil
+
+    from .factors import current_user, log
+
+    counts = count_saved(mode, mk)
+    r = root(mode)
+    targets = [r / "runs"] + ([r / "exports"] if include_exports else [])
+    for base in targets:
+        path = base / mk if mk else base
+        if path.exists():
+            shutil.rmtree(path)
+    log([{"timestamp": datetime.now().isoformat(timespec="seconds"), "user": current_user(),
+          "action": "clear runs", "well": "(all wells)", "field": mk or "all months",
+          "old": f"{counts['runs']} runs, {counts['exports'] if include_exports else 0} exports", "new": "cleared",
+          "reason": reason.strip()}])
+    if not include_exports:
+        counts["exports"] = 0
+    return counts

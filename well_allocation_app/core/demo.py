@@ -32,7 +32,26 @@ def _truth(well: str, idx: pd.DatetimeIndex):
     return q, w, g, thp, rng
 
 
-def demo_pull(well_row: pd.Series, year: int, month: int) -> pd.DataFrame:
+def demo_icv(well: str, idx: pd.DatetimeIndex, zone_keys) -> pd.DataFrame:
+    """ICV positions 0-10: mostly steady, with one adjustment day on one zone (moves within that day)."""
+    rng = _rng("icv", well, idx[0].strftime("%Y-%m"))
+    out = pd.DataFrame(index=idx)
+    moved = rng.choice(list(zone_keys)) if zone_keys else None
+    day = int(rng.integers(5, len(idx) - 5))
+    for z in zone_keys:
+        pos = np.full(len(idx), float(rng.choice([4, 6, 8, 10])))
+        lo, hi = pos.copy(), pos.copy()
+        if z == moved:
+            new = max(0.0, pos[0] - float(rng.choice([2, 4])))
+            frac = rng.uniform(0.3, 0.7)            # time-weighted share of the move day at the old position
+            lo[day], hi[day] = new, pos[0]
+            pos[day] = pos[0] * frac + new * (1 - frac)
+            pos[day + 1:], lo[day + 1:], hi[day + 1:] = new, new, new
+        out[f"icv_{z}"], out[f"icv_{z}_min"], out[f"icv_{z}_max"] = pos, lo, hi
+    return out
+
+
+def demo_pull(well_row: pd.Series, year: int, month: int, icv_zones=()) -> pd.DataFrame:
     """Daily oil/gas/water (MPFM, with a meter bias), THP and BHP for one well-month."""
     idx = month_index(year, month)
     well = well_row["well"]
@@ -49,6 +68,8 @@ def demo_pull(well_row: pd.Series, year: int, month: int) -> pd.DataFrame:
     # a couple of gauge dropouts so the app's gap handling is visible
     if rng.random() < 0.5:
         df.iloc[rng.integers(3, len(idx) - 3), [3, 4]] = np.nan
+    if icv_zones:
+        df = df.join(demo_icv(well, idx, list(icv_zones)))
     return df
 
 
