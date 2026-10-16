@@ -28,7 +28,7 @@ VIEWS = Path(__file__).parent / "views"
 pages = [
     st.Page(str(VIEWS / "configure.py"), title="Configuration", icon=":material/tune:", default=True),
     st.Page(str(VIEWS / "allocate.py"), title="Well allocation", icon=":material/oil_barrel:"),
-    st.Page(str(VIEWS / "field.py"), title="Field roll-up", icon=":material/stacked_line_chart:"),
+    st.Page(str(VIEWS / "field.py"), title="Field Reconciliation", icon=":material/stacked_line_chart:"),
     st.Page(str(VIEWS / "overview.py"), title="Month status", icon=":material/checklist:"),
 ]
 

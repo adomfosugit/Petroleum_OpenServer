@@ -28,7 +28,7 @@ n_zones = mats["oil"].shape[1] - 1
 alloc_oil = mats["oil"]["Total"].mean()
 fiscal_oil = pprs["oil"].mean() if pprs_days else float("nan")
 ui.header(
-    "Field roll-up",
+    "Field Reconciliation",
     f"{ui.period_label()}: gradient match for all wells, normalised to PPRS",
     [("Wells in roll-up", f"{len(exports)} / {len(W)}"), ("Zones", str(n_zones)),
      ("Allocated oil, avg", ui.fmt(alloc_oil, 0, " stb/d")), ("PPRS oil, avg", ui.fmt(fiscal_oil, 0, " stb/d"))],

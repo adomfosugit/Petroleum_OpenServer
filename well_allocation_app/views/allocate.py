@@ -224,7 +224,7 @@ with st.container(border=True):
     tol_in = o1.number_input("Tolerance %", 0.01, 50.0, tol_pct, 0.5, format="%.2f",
                              help="Days whose calculated BHP is within this of the gauge BHP are flagged as matched.")
     o2.write("")
-    go_run = o2.button("Run PROSPER" if not has_match else "Run PROSPER again",
+    go_run = o2.button("Run Prosper Nodal Match" if not has_match else "Run Prosper Nodal Match again",
                        type="primary" if not has_match else "secondary", width="stretch")
     n_edit = int(run[editable].notna().any(axis=1).sum())
     o3.write("")
@@ -242,11 +242,9 @@ with st.container(border=True):
 
     if has_match:
         st.markdown("**Results**")
-        k1, k2, k3, k4 = st.columns(4)
+        k3, k4 = st.columns(2)
         err = run["match_err_pct"]
-        k1.metric("Mean deviation, figures run", ui.fmt(err.mean(), 2, " %"),
-                  help="Mean of |gauge BHP − PROSPER BHP| / gauge BHP")
-        k2.metric("Mean deviation, MPFM figures", ui.fmt(run["nodal_dev_pct"].mean(), 2, " %"))
+     
         k3.metric(f"Days within {tol_in:g} %", f"{int((err <= tol_in).sum())} / {int(err.notna().sum())}")
         k4.metric("Max deviation", ui.fmt(err.max(), 2, " %"))
         res = daily(run, ["thp", "match_liquid", "match_wct", "match_gor", "match_phase",
@@ -280,7 +278,7 @@ if not has_match:
 with st.container(border=True):
     ui.step(4, "Review and export", done=exported)
     e1, e2 = st.columns([3, 2])
-    options = ["mpfm", "matched", "auto"]
+    options = ["mpfm"]
     default_src = exp_meta.get("source", s["export_source"]) if exported else s["export_source"]
     default_src = default_src if default_src in options else "matched"
     src = e1.radio("Rates to export", options, index=options.index(default_src), format_func=lambda k: al.SOURCES[k])
