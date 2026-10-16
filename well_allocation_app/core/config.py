@@ -141,23 +141,49 @@ def read_wells_csv(src) -> pd.DataFrame:
     return normalise_wells(pd.DataFrame(rows, columns=keys))
 
 
-def load_wells() -> pd.DataFrame:
-    """The loaded well list, or an empty table until a Configuration Sheet is attached."""
-    if WELLS_CSV.exists():
-        return read_wells_csv(WELLS_CSV)
+def sheets_dir() -> Path:
+    """Monthly Configuration Sheets: config/sheets/wells_YYYY-MM.csv applies from that month onwards."""
+    return CONFIG_DIR / "sheets"
+
+
+def monthly_sheets() -> dict[str, Path]:
+    """{'YYYY-MM': path} for every monthly sheet, oldest first."""
+    d = sheets_dir()
+    out = {}
+    if d.exists():
+        for p in d.glob("wells_*.csv"):
+            mk = p.stem[len("wells_"):]
+            if len(mk) == 7 and mk[4] == "-" and mk.replace("-", "").isdigit():
+                out[mk] = p
+    return dict(sorted(out.items()))
+
+
+def sheet_for_month(mk: str | None) -> tuple[Path, str | None]:
+    """The Configuration Sheet in force for month mk ('YYYY-MM'): the newest monthly sheet dated on or
+    before mk, else config/wells.csv. Returns (path, month the sheet starts from, or None for wells.csv)."""
+    if mk:
+        earlier = [k for k in monthly_sheets() if k <= mk]
+        if earlier:
+            return monthly_sheets()[earlier[-1]], earlier[-1]
+    return WELLS_CSV, None
+
+
+def load_wells(mk: str | None = None) -> pd.DataFrame:
+    """The well list in force for month mk (or config/wells.csv), or an empty table if there is none."""
+    path, _ = sheet_for_month(mk)
+    if path.exists():
+        return read_wells_csv(path)
     return normalise_wells(pd.DataFrame(columns=list(WELL_COLUMNS)))
 
 
-def save_wells(df: pd.DataFrame) -> None:
-    """Write a well list to config/wells.csv (used only by tools/import_workbook.py).
-
-    Refuses to write an empty list, so an existing Configuration Sheet is never wiped.
-    """
+def save_wells(df: pd.DataFrame, path: Path | None = None) -> None:
+    """Write a well list (default config/wells.csv). Refuses an empty list, so a sheet is never wiped."""
     out = normalise_wells(df)
     if out.empty:
-        raise ValueError("No wells to save; config/wells.csv was left unchanged.")
-    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    out.to_csv(WELLS_CSV, index=False)
+        raise ValueError("No wells to save; the Configuration Sheet was left unchanged.")
+    path = path or WELLS_CSV
+    path.parent.mkdir(parents=True, exist_ok=True)
+    out.to_csv(path, index=False)
 
 
 def wells_from_workbook(path_or_buffer) -> pd.DataFrame:

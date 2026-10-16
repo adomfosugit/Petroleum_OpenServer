@@ -6,7 +6,7 @@ import streamlit as st
 
 from core import factors as fx
 from core import store
-from core.config import NUMERIC_COLS, WELL_COLUMNS, WELLS_CSV, normalise_wells, save_settings
+from core.config import NUMERIC_COLS, WELL_COLUMNS, WELLS_CSV, normalise_wells, monthly_sheets, save_settings, sheet_for_month
 from core.pi_client import pi_available
 from core.prosper import open_session, openserver_available
 from views import ui
@@ -18,6 +18,8 @@ if s.get("mode") != MODE:
     s["mode"] = MODE
     save_settings(s)
 W = ui.wells()
+_y, _m, MK = ui.period()
+SHEET_PATH, SHEET_FROM = sheet_for_month(MK)
 ui.header("Configuration", "Connections, unit conversions, the Configuration Sheet, the audit trail and run resets")
 
 pi_ok, pi_msg = pi_available()
@@ -73,19 +75,22 @@ with tab_c:
 
 # ---------------------------------------------------------------- configuration sheet
 with tab_w:
-    if not WELLS_CSV.exists():
+    if not SHEET_PATH.exists():
         st.info(f"No Configuration Sheet found. Save the sheet as CSV (header rows included) to\n\n"
                 f"`{WELLS_CSV}`\n\nthen refresh this page.")
     elif W.empty:
-        st.error(f"`{WELLS_CSV.name}` was found but no wells could be read from it. Check it is the Configuration "
+        st.error(f"`{SHEET_PATH.name}` was found but no wells could be read from it. Check it is the Configuration "
                  "Sheet saved as CSV, starting at the Well column.")
     else:
-        mod = datetime.fromtimestamp(WELLS_CSV.stat().st_mtime).strftime("%d %b %Y %H:%M")
-        st.markdown(f'<p class="wa-note">{len(W)} wells read from <code>{WELLS_CSV}</code> (saved {mod}). '
+        mod = datetime.fromtimestamp(SHEET_PATH.stat().st_mtime).strftime("%d %b %Y %H:%M")
+        applies = (f"the {pd.Timestamp(SHEET_FROM + '-01'):%B %Y} sheet, in force from {pd.Timestamp(SHEET_FROM + '-01'):%B %Y} onwards"
+                   if SHEET_FROM else "the base sheet, in force until the first monthly sheet")
+        st.markdown(f'<p class="wa-note">Showing the sheet in force for <b>{ui.period_label()}</b>: {applies} '
+                    f'(<code>{SHEET_PATH}</code>, saved {mod}, {len(W)} wells). '
                     'Edit cells in place, then review and save below. Every save keeps a copy of the previous '
                     'sheet and records each changed cell in the audit trail. A factor edited here applies to '
-                    '<b>every date</b>; to change a factor from a given date onwards, use <b>Factors</b> on the '
-                    'Well allocation page.</p>', unsafe_allow_html=True)
+                    '<b>every date this sheet covers</b>; to change a factor from a given date onwards, use '
+                    '<b>Factors</b> on the Well allocation page.</p>', unsafe_allow_html=True)
         ver = st.session_state.setdefault("cfg_ver", 0)
         cfg = {k: (st.column_config.NumberColumn(label) if k in NUMERIC_COLS else st.column_config.TextColumn(label))
                for k, (label, _) in WELL_COLUMNS.items()}
@@ -96,7 +101,7 @@ with tab_w:
         changes = fx.diff_wells(W, normalise_wells(edited), {k: v[0] for k, v in WELL_COLUMNS.items()})
         d1, d2 = st.columns([3, 1])
         d2.download_button("Download sheet (CSV)", W.rename(columns={k: v[0] for k, v in WELL_COLUMNS.items()})
-                           .to_csv(index=False).encode(), file_name="configuration_sheet.csv", mime="text/csv",
+                           .to_csv(index=False).encode(), file_name=f"configuration_sheet_{SHEET_FROM or 'base'}.csv", mime="text/csv",
                            width="stretch")
         if not changes:
             d1.caption("No unsaved edits.")
@@ -112,7 +117,7 @@ with tab_w:
                 r2.write("")
                 if r2.button("Save Configuration Sheet", type="primary", width="stretch"):
                     try:
-                        done = fx.save_config_sheet(edited, why)
+                        done = fx.save_config_sheet(edited, why, mk=MK)
                         st.session_state["cfg_ver"] = ver + 1
                         st.toast(f"Configuration Sheet saved: {len(done)} change(s) logged")
                         st.rerun()
@@ -125,6 +130,41 @@ with tab_w:
 
 # ---------------------------------------------------------------- audit trail
 with tab_a:
+    nxt, new_sheet, carried = fx.preview_roll_forward(MK)
+    nxt_label = f"{pd.Timestamp(nxt + '-01'):%B %Y}"
+    with st.container(border=True):
+        st.markdown(f"**Create the Configuration Sheet for {nxt_label}**")
+        st.markdown(f'<p class="wa-note">Takes the sheet in force for {ui.period_label()} and writes in the latest '
+                    f'dated factor change for each well and factor up to the end of {ui.period_label()}. The result is '
+                    f'saved as <code>sheets/wells_{nxt}.csv</code> and is used from {nxt_label} onwards. Earlier months '
+                    f'keep their own sheet and dated changes, so re-running them gives the same figures.</p>',
+                    unsafe_allow_html=True)
+        exists = nxt in monthly_sheets()
+        if carried:
+            st.dataframe(pd.DataFrame(carried).rename(columns={
+                "well": "Well", "field": "Factor", "old": f"{ui.period_label()} sheet", "new": f"{nxt_label} sheet",
+                "change_from": "Dated change from", "changed_by": "Changed by", "change_reason": "Reason"}),
+                hide_index=True, width="stretch", height=min(38 + 35 * len(carried), 300))
+        else:
+            st.caption(f"No dated factor changes to carry: the {nxt_label} sheet will be a copy of the current one.")
+        if exists:
+            st.warning(f"A {nxt_label} sheet already exists. Creating it again replaces it "
+                       "(the old one is kept in the history folder).")
+        n1, n2, n3 = st.columns([3, 1.4, 1.4])
+        nv = st.session_state.setdefault("roll_ver", 0)
+        nwhy = n1.text_input("Note (optional)", key=f"roll_why_{nv}", placeholder="e.g. month-end close")
+        n2.write("")
+        if n2.button(f"Create {nxt_label} sheet" if not exists else f"Replace {nxt_label} sheet", type="primary",
+                     width="stretch", disabled=W.empty):
+            _, path, done = fx.roll_forward(MK, nwhy, replace=exists)
+            st.session_state["roll_ver"] = nv + 1
+            st.toast(f"{path.name} created with {len(done)} carried change(s)")
+            st.rerun()
+        n3.write("")
+        n3.download_button(f"Download {nxt_label} sheet", new_sheet.rename(
+            columns={k: v[0] for k, v in WELL_COLUMNS.items()}).to_csv(index=False).encode(),
+            file_name=f"wells_{nxt}.csv", mime="text/csv", width="stretch", disabled=W.empty)
+
     log = fx.load_audit()
     st.markdown('<p class="wa-note">Every change made in the app: Configuration Sheet edits, dated factor '
                 'changes and run resets, with who made it, when and why. Copies of the Configuration Sheet '

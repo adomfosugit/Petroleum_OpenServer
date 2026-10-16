@@ -69,14 +69,17 @@ def settings() -> dict:
 
 
 @st.cache_data(show_spinner=False)
-def _wells_cached(_mtime: float) -> pd.DataFrame:
-    return load_wells()
+def _wells_cached(mk, _path: str, _mtime: float) -> pd.DataFrame:
+    return load_wells(mk)
 
 
 def wells() -> pd.DataFrame:
-    from core.config import WELLS_CSV
-    mtime = WELLS_CSV.stat().st_mtime if WELLS_CSV.exists() else 0.0
-    return _wells_cached(mtime)
+    """The Configuration Sheet in force for the month selected in the sidebar."""
+    from core.config import sheet_for_month
+    mk = period()[2] if "year" in st.session_state and "month" in st.session_state else None
+    path, _ = sheet_for_month(mk)
+    mtime = path.stat().st_mtime if path.exists() else 0.0
+    return _wells_cached(mk, str(path), mtime)
 
 
 def period() -> tuple[int, int, str]:

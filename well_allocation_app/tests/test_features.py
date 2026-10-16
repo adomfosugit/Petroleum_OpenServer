@@ -128,3 +128,33 @@ def test_clear_runs_month_or_all(sandbox):
     store.clear_runs("live", None, False, "runs only")
     assert store.count_saved("live") == {"runs": 0, "exports": 1}
     assert (factors.load_audit()["action"] == "clear runs").sum() == 2
+
+
+def test_roll_forward_creates_next_month_sheet_without_changing_history(sandbox):
+    sep = pd.date_range("2026-09-01", "2026-09-30", freq="D")
+    octo = pd.date_range("2026-10-01", "2026-10-31", freq="D")
+    factors.add_change("J03-P", "liquid", 0.95, "2026-09-06", "MPFM recalibrated", old_value=0.9)
+    factors.add_change("J03-P", "liquid", 0.97, "2026-11-03", "future change")       # not carried into October
+    nxt, new, preview = factors.preview_roll_forward("2026-09")
+    assert nxt == "2026-10" and [(c["well"], c["old"], c["new"]) for c in preview] == [("J03-P", "0.9", "0.95")]
+    factors.roll_forward("2026-09", "month end")
+    assert config.sheet_for_month("2026-10")[1] == "2026-10"
+    assert config.sheet_for_month("2026-09")[1] is None                               # September keeps wells.csv
+    sep_row = config.load_wells("2026-09").set_index("well").loc["J03-P"]
+    oct_row = config.load_wells("2026-10").set_index("well").loc["J03-P"]
+    assert sep_row["liquid_factor"] == 0.9 and oct_row["liquid_factor"] == 0.95
+    f_sep = factors.daily_factors(sep_row.rename("x").to_frame().T.assign(well="J03-P").iloc[0], sep)
+    assert f_sep.loc["2026-09-05", "f_liquid"] == 0.9 and f_sep.loc["2026-09-06", "f_liquid"] == 0.95
+    # editing October's sheet to 1.0 is not overridden by the September change
+    W = config.load_wells("2026-10")
+    W.loc[W.well == "J03-P", "liquid_factor"] = 1.0
+    factors.save_config_sheet(W, "new MPFM", mk="2026-10")
+    oct_row = config.load_wells("2026-10").set_index("well").loc["J03-P"]
+    f_oct = factors.daily_factors(oct_row.to_frame().T.assign(well="J03-P").iloc[0], octo)
+    assert (f_oct["f_liquid"] == 1.0).all()
+    assert config.load_wells("2026-09").set_index("well").loc["J03-P", "liquid_factor"] == 0.9   # wells.csv untouched
+    assert config.load_wells("2026-12").set_index("well").loc["J03-P", "liquid_factor"] == 1.0   # Oct sheet carries on
+    with pytest.raises(ValueError):
+        factors.roll_forward("2026-09")                                               # won't overwrite silently
+    acts = factors.load_audit()["action"].tolist()
+    assert acts.count("new month sheet") == 1 and acts.count("config sheet edit") == 1

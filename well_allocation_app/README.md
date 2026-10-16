@@ -75,3 +75,7 @@ tools/import_workbook.py   python tools/import_workbook.py Allocation.xlsm
 - **Reset runs**: *Configuration → Reset runs* clears the selected month or all months (optionally with exports and zonal splits). The Configuration Sheet, factor changes, PPRS data and the audit trail are kept.
 
 `config/factor_changes.csv`, `config/audit_log.csv` and `config/history/` are git-ignored, like `config/wells.csv`.
+
+## Month-end: next month's Configuration Sheet
+
+*Configuration → Audit trail → Create the Configuration Sheet for <next month>* takes the sheet in force for the selected month, writes in the latest dated factor change for each well and factor up to the end of that month, and saves it as `config/sheets/wells_YYYY-MM.csv`. Each month uses the newest sheet dated on or before it (falling back to `config/wells.csv`), and only dated changes from that sheet's start onwards apply on top. Earlier months keep their own sheet, so re-running them gives the same figures. The carried changes are logged in the audit trail, and the new sheet can be downloaded.
