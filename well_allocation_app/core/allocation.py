@@ -322,19 +322,68 @@ def build_export(run: pd.DataFrame, source: str, auto_threshold_pct: float = 5.0
     return out
 
 
-def zonal_split(export: pd.DataFrame, zones: list[Zone]) -> pd.DataFrame:
-    """Template formulas: oil, gas and water from liquid/WCT/GOR, then each zone = phase x split factor."""
+def zone_factors(index: pd.DatetimeIndex, zones: list[Zone], icv: pd.DataFrame | None = None,
+                 closed_max: float | None = None) -> tuple[pd.DataFrame, pd.Series, pd.Series]:
+    """Split factor for each zone on each day, allowing for closed ICVs.
+
+    A zone whose ICV daily average position is at or below closed_max is closed that day: it gets 0 and the
+    open zones' factors are prorated to add up to 100 % (e.g. 0.2 / 0.4 / 0.4 with MZ closed -> 0.333 / 0 / 0.667).
+    Days with no ICV reading count as open. If every zone reads closed, or every open zone has a zero factor,
+    the configured factors are used that day and the day is noted (the well is still flowing per the MPFM).
+    Returns (factors by zone key, closed zones per day e.g. "MZ", note per day).
+    """
+    keys = [z.key for z in zones]
+    base = pd.DataFrame({z.key: float(z.split) for z in zones}, index=index, dtype=float)
+    closed = pd.DataFrame(False, index=index, columns=keys)
+    if icv is not None and closed_max is not None and len(zones) > 1:
+        for z in zones:
+            col = f"icv_{z.key.lower()}"
+            if col in icv.columns:
+                pos = pd.to_numeric(icv[col], errors="coerce").reindex(index)
+                closed[z.key] = pos.le(float(closed_max)).fillna(False).astype(bool)
+    open_sum = base.where(~closed, 0.0).sum(axis=1)
+    any_closed = closed.any(axis=1)
+    fallback = any_closed & (closed.all(axis=1) | (open_sum <= 0))
+    use = any_closed & ~fallback
+    eff = base.copy()
+    eff.loc[use] = base.loc[use].where(~closed.loc[use], 0.0).div(open_sum[use], axis=0)
+    closed_txt = pd.Series([", ".join(k for k in keys if closed.at[d, k]) or None for d in index], index=index,
+                           dtype=object)
+    note = pd.Series(None, index=index, dtype=object)
+    note[fallback & closed.all(axis=1)] = "All ICVs read closed: configured factors used"
+    note[fallback & ~closed.all(axis=1)] = "Open zones have no factor: configured factors used"
+    return eff, closed_txt, note
+
+
+def zonal_split(export: pd.DataFrame, zones: list[Zone], icv: pd.DataFrame | None = None,
+                closed_max: float | None = None) -> pd.DataFrame:
+    """Template formulas: oil, gas and water from liquid/WCT/GOR, then each zone = phase x split factor.
+
+    With icv (a frame holding icv_uz / icv_mz / icv_lz daily positions) and closed_max, the factors are taken
+    day by day from zone_factors, so a zone with a closed ICV gets no rate that day. The factor and ICV
+    position used are kept per zone as '<zone>|factor' and '<zone>|icv'; closed zones in 'icv_closed'.
+    """
     df = export.copy()
     liq, wct, gor = df["liquid"].astype(float), df["wct"].astype(float), df["gor"].astype(float)
     df["oil"] = liq * (100 - wct) / 100
     df["gas"] = df["oil"] * gor / 1e6
     df["water"] = liq * wct / 100
+    use_icv = icv is not None and closed_max is not None and len(zones) > 1
+    if use_icv:
+        eff, closed_txt, note = zone_factors(df.index, zones, icv, closed_max)
+        df["icv_closed"] = closed_txt
+        df["icv_note"] = note
     for z in zones:
         p = z.label
-        df[f"{p}|oil"] = df["oil"] * z.split
-        df[f"{p}|water"] = df["water"] * z.split
-        df[f"{p}|gas"] = df["gas"] * z.split
+        f = eff[z.key] if use_icv else z.split
+        df[f"{p}|oil"] = df["oil"] * f
+        df[f"{p}|water"] = df["water"] * f
+        df[f"{p}|gas"] = df["gas"] * f
         with np.errstate(divide="ignore", invalid="ignore"):
             df[f"{p}|gor"] = df[f"{p}|gas"] * 1e6 / df[f"{p}|oil"]
             df[f"{p}|wct"] = df[f"{p}|water"] / (df[f"{p}|oil"] + df[f"{p}|water"])
+        if use_icv:
+            df[f"{p}|factor"] = f
+            col = f"icv_{z.key.lower()}"
+            df[f"{p}|icv"] = pd.to_numeric(icv[col], errors="coerce").reindex(df.index) if col in icv.columns else np.nan
     return df.replace([np.inf, -np.inf], np.nan)

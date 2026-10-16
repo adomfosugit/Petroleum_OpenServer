@@ -90,15 +90,20 @@ def export_well(run, well_row, settings, mk, source, auto_threshold_pct):
     return table, meta
 
 
-def apply_zonal_split(mode, mk, well, zones: list[Zone]):
-    """Split the exported well rates across its zones with the given factors."""
+def apply_zonal_split(mode, mk, well, zones: list[Zone], closed_max: float | None = None):
+    """Split the exported well rates across its zones with the given factors. With closed_max, a zone whose
+    ICV reads at or below it on a day gets no rate that day and the open zones' factors are prorated to 100 %."""
     exports = store.load_exports(mode, mk)
     if well not in exports:
         raise ValueError(f"Export {well} before splitting it.")
     table, meta = exports[well]
     base = table[["liquid", "wct", "gor", "bhp_dev_pct", "source"]]
-    out = al.zonal_split(base, zones)
-    meta = {**meta, "zones": _zone_meta(zones), "split_done": True}
+    run = store.load_run(mode, mk, well) if closed_max is not None else None
+    icv = run[[c for c in run.columns if c.startswith("icv_")]] if run is not None else None
+    out = al.zonal_split(base, zones, icv, closed_max)
+    closed_days = int(out["icv_closed"].notna().sum()) if "icv_closed" in out else 0
+    meta = {**meta, "zones": _zone_meta(zones), "split_done": True,
+            "icv_closed_max": closed_max, "icv_closed_days": closed_days}
     store.save_export(mode, mk, well, out, meta)
     return out, meta
 

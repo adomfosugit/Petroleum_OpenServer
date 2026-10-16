@@ -434,15 +434,23 @@ if not multi or not exported:
     st.stop()
 
 # ================================================================ 5. zonal split (multi-zone only)
+closed_max = float(s.get("icv_closed_max", 2.0))
+icv_run = run[[c for c in run.columns if c.startswith("icv_")]]
+have_icv = any(run[f"icv_{z.key.lower()}"].notna().any() for z in zones if f"icv_{z.key.lower()}" in run.columns)
 with st.container(border=True):
     ui.step(5, "Zonal split", done=bool(split_done))
     st.markdown(f'<span class="wa-note">Each zone gets the well\'s oil, gas and water times its factor. Defaults come '
                 f'from the well configuration (template {row["template"]}); adjust them here for this month if needed. '
-                f'Factors should add up to 1.</span>', unsafe_allow_html=True)
+                f'Factors should add up to 1. On any day a zone\'s ICV reads at or below <b>{closed_max:g}</b> '
+                f'(closed), that zone gets no rate and the open zones\' factors are prorated to 100 %.</span>',
+                unsafe_allow_html=True)
     icv_flags = run["icv_moved"].dropna()
     if len(icv_flags):
         st.warning("ICV adjustments this month: " + "; ".join(f"{d:%d %b} ({v})" for d, v in icv_flags.items())
-                   + ". The factors below apply to the whole month, so check they still hold after each adjustment.")
+                   + ". Check the factors below still hold after each adjustment.")
+    if not have_icv:
+        st.info("No ICV positions for this month, so every zone is treated as open. Pull from PI again to read the "
+                "ICVs.")
     saved = {z["key"]: z["split"] for z in exp_meta.get("zones", [])} if split_done else {}
     ztab = pd.DataFrame([{"Interval": z.key, "Zone": z.name, "Factor": saved.get(z.key, z.split)} for z in zones])
     c1, c2 = st.columns([2, 3])
@@ -453,33 +461,67 @@ with st.container(border=True):
                                 key=f"split_{mk}_{well}")
         total = float(edited["Factor"].fillna(0).sum())
         if abs(total - 1) > 1e-6:
-            st.warning(f"Factors add up to {total:.3f}, so the zones will not sum to the well total.")
+            st.warning(f"Factors add up to {total:.3f}, so the zones will not sum to the well total on days with "
+                       "every ICV open.")
         else:
             st.caption("Factors add up to 1.")
     new_zones = [Zone(z.key, z.name, float(f), z.label) for z, f in zip(zones, edited["Factor"].fillna(0))]
     table, _ = store.load_exports(mode, mk)[well]
-    split_preview = al.zonal_split(table[["liquid", "wct", "gor", "bhp_dev_pct", "source"]], new_zones)
+    split_preview = al.zonal_split(table[["liquid", "wct", "gor", "bhp_dev_pct", "source"]], new_zones,
+                                   icv_run, closed_max)
     with c2:
         totals = pd.DataFrame([{
             "Zone": z.name,
+            "Days closed": int(split_preview["icv_closed"].fillna("").str.split(", ").map(lambda v: z.key in v).sum()),
+            "Avg factor": split_preview[f"{z.label}|factor"].mean(),
             "Oil, stb/d": split_preview[f"{z.label}|oil"].mean(),
             "Gas, MMscf/d": split_preview[f"{z.label}|gas"].mean(),
             "Water, stb/d": split_preview[f"{z.label}|water"].mean(),
         } for z in new_zones])
         st.markdown("**Month average by zone**")
         st.dataframe(totals, hide_index=True, width="stretch", column_config={
+            "Avg factor": st.column_config.NumberColumn(format="%.3f"),
             "Oil, stb/d": st.column_config.NumberColumn(format="%.0f"),
             "Gas, MMscf/d": st.column_config.NumberColumn(format="%.3f"),
             "Water, stb/d": st.column_config.NumberColumn(format="%.0f")})
+
+    closed_days = split_preview["icv_closed"].dropna()
+    notes = split_preview["icv_note"].dropna()
+    if len(closed_days):
+        runs_txt = []
+        grp = (closed_days != closed_days.shift()).cumsum()
+        for _, seg in closed_days.groupby(grp):
+            d0, d1 = seg.index[0], seg.index[-1]
+            span = f"{d0:%d %b}" if d0 == d1 else f"{d0:%d}–{d1:%d %b}"
+            runs_txt.append(f"{seg.iloc[0]} closed {span}")
+        st.info("ICV closed (position ≤ " + f"{closed_max:g}): " + "; ".join(runs_txt)
+                + ". Those zones get no rate on those days and the open zones' factors are prorated to 100 %.")
+    if len(notes):
+        st.warning("; ".join(f"{d:%d %b}: {v}" for d, v in notes.items()))
+
+    with st.expander("Daily zone factors and ICV positions", expanded=bool(len(closed_days))):
+        fcols = []
+        fcfg = {"icv_closed": st.column_config.TextColumn("Closed")}
+        for z in new_zones:
+            nm = ui.zone_label(z.key.lower(), z.name)
+            fcols += [f"{z.label}|icv", f"{z.label}|factor"]
+            fcfg[f"{z.label}|icv"] = st.column_config.NumberColumn(f"{nm} ICV", format="%.2f")
+            fcfg[f"{z.label}|factor"] = st.column_config.NumberColumn(f"{nm} factor", format="%.3f")
+        ftab = split_preview[fcols + ["icv_closed"]].copy()
+        ftab["icv_closed"] = ftab["icv_closed"].fillna("")
+        ftab.index = ftab.index.date
+        ftab.index.name = "Date"
+        st.dataframe(ftab, column_config=fcfg, width="stretch", height=300)
     with st.expander("Daily zone rates"):
-        zshow = split_preview[[c for c in split_preview.columns if "|" in c]].copy()
+        zshow = split_preview[[c for c in split_preview.columns
+                               if "|" in c and not c.endswith(("|factor", "|icv"))]].copy()
         zshow.index = zshow.index.date
         zshow.columns = [c.replace("|", " ") for c in zshow.columns]
         st.dataframe(zshow, width="stretch", height=300)
     a, b, _ = st.columns([1.4, 1.4, 3])
     if a.button("Apply zonal split" if not split_done else "Apply again", type="primary" if not split_done else "secondary",
                 width="stretch"):
-        wf.apply_zonal_split(mode, mk, well, new_zones)
+        wf.apply_zonal_split(mode, mk, well, new_zones, closed_max)
         st.toast(f"{well} split into {len(new_zones)} zones and added to the field roll-up")
         st.rerun()
     if split_done:

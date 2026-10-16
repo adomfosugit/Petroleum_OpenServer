@@ -79,3 +79,7 @@ tools/import_workbook.py   python tools/import_workbook.py Allocation.xlsm
 ## Month-end: next month's Configuration Sheet
 
 *Configuration → Audit trail → Create the Configuration Sheet for <next month>* takes the sheet in force for the selected month, writes in the latest dated factor change for each well and factor up to the end of that month, and saves it as `config/sheets/wells_YYYY-MM.csv`. Each month uses the newest sheet dated on or before it (falling back to `config/wells.csv`), and only dated changes from that sheet's start onwards apply on top. Earlier months keep their own sheet, so re-running them gives the same figures. The carried changes are logged in the audit trail, and the new sheet can be downloaded.
+
+## Closed ICVs in the zonal split
+
+On any day a zone's ICV daily average position is at or below *Configuration → Settings → ICV closed at or below position* (default 2), that zone gets no rate and the open zones' split factors are prorated to 100 % for that day (0.2 / 0.4 / 0.4 with MZ closed becomes 0.333 / 0 / 0.667). Days with no ICV reading count as open. If every zone reads closed, the configured factors are used and the day is flagged. The Zonal split step shows the closed days, the daily factor and ICV position per zone, and each zone's average factor for the month; the daily factors are saved with the export.

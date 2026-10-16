@@ -158,3 +158,43 @@ def test_roll_forward_creates_next_month_sheet_without_changing_history(sandbox)
         factors.roll_forward("2026-09")                                               # won't overwrite silently
     acts = factors.load_audit()["action"].tolist()
     assert acts.count("new month sheet") == 1 and acts.count("config sheet edit") == 1
+
+
+def _zones3():
+    from core.config import Zone
+    return [Zone("UZ", "MH5", 0.2, "W UZ"), Zone("MZ", "MH4", 0.4, "W MZ"), Zone("LZ", "MH2", 0.4, "W LZ")]
+
+
+def test_closed_icv_gets_no_rate_and_open_zones_prorate_to_100pct():
+    idx = pd.date_range("2026-09-01", periods=4, freq="D")
+    icv = pd.DataFrame({"icv_uz": [10, 10, 1.5, 0], "icv_mz": [6, 2.0, 2.5, 0], "icv_lz": [8, 8, np.nan, 0]},
+                       index=idx)
+    eff, closed, note = al.zone_factors(idx, _zones3(), icv, closed_max=2.0)
+    assert eff.iloc[0].tolist() == [0.2, 0.4, 0.4] and closed.iloc[0] is None             # all open
+    assert np.allclose(eff.iloc[1], [0.2 / 0.6, 0, 0.4 / 0.6]) and closed.iloc[1] == "MZ"  # 2.0 counts as closed
+    assert np.allclose(eff.iloc[2], [0, 0.4 / 0.8, 0.4 / 0.8]) and closed.iloc[2] == "UZ"  # no LZ reading = open
+    assert eff.iloc[3].tolist() == [0.2, 0.4, 0.4] and "All ICVs" in note.iloc[3]          # all closed: fallback
+    exp = pd.DataFrame({"liquid": 1000.0, "wct": 20.0, "gor": 1500.0, "bhp_dev_pct": 0.0, "source": "mpfm"},
+                       index=idx)
+    t = al.zonal_split(exp, _zones3(), icv, 2.0)
+    zone_oil = t[["W UZ|oil", "W MZ|oil", "W LZ|oil"]].sum(axis=1)
+    assert np.allclose(zone_oil, t["oil"])                                                 # well total kept
+    assert t.loc[idx[1], "W MZ|oil"] == 0 and t.loc[idx[1], "W MZ|factor"] == 0
+    assert t["icv_closed"].tolist()[1:3] == ["MZ", "UZ"]
+
+
+def test_apply_zonal_split_uses_pulled_icv(sandbox):
+    from core.config import zones_for
+    s = {**DEFAULT_SETTINGS, "mode": "live"}
+    row = sandbox[sandbox.well == "J23-P"].iloc[0]
+    run, _ = wf.pull(row, 2026, 9, {**s, "mode": "demo"})
+    run.loc["2026-09-20":, "icv_lz"] = 0.0                                          # LZ shut from the 20th
+    run = wf.manual_match(run, row, {**s, "mode": "demo"})
+    store.save_run("live", "2026-09", "J23-P", run)
+    wf.export_well(run, row, s, "2026-09", "mpfm", 5.0)
+    out, meta = wf.apply_zonal_split("live", "2026-09", "J23-P", zones_for(row), closed_max=2.0)
+    lz = [z for z in zones_for(row) if z.key == "LZ"][0].label
+    assert (out.loc["2026-09-20":, f"{lz}|oil"] == 0).all() and (out.loc[:"2026-09-19", f"{lz}|oil"] > 0).all()
+    zone_cols = [c for c in out.columns if c.endswith("|oil")]
+    assert np.allclose(out[zone_cols].sum(axis=1), out["oil"], equal_nan=True)
+    assert meta["icv_closed_days"] == 11

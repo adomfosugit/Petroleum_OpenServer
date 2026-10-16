@@ -59,16 +59,20 @@ with tab_c:
                              help="Workbook cell C18. 14.5 converts bar to psi.")
 
         st.subheader("ICV adjustments")
-        c1, _, _ = st.columns(3)
+        c1, c2, _ = st.columns(3)
         it = c1.number_input("Position change that counts as an adjustment", min_value=0.0,
                              value=float(s.get("icv_move_threshold", 0.5)), step=0.1, format="%.2f",
                              help="A day is flagged when a zone's ICV moved by more than this within the day, "
                                   "or its daily average changed by more than this from the day before. "
                                   "Applies from the next pull.")
+        icm = c2.number_input("ICV closed at or below position", min_value=0.0,
+                              value=float(s.get("icv_closed_max", 2.0)), step=0.5, format="%.2f",
+                              help="On days a zone's ICV daily average is at or below this, the zone gets no rate "
+                                   "and the open zones' split factors are prorated to 100 %.")
 
         if st.form_submit_button("Save settings", type="primary"):
             # PI server, time zone, interval and matching settings keep their saved values.
-            s.update(mode=MODE, liquid_conv=lc, gas_conv=gc, pressure_conv=pc, icv_move_threshold=it)
+            s.update(mode=MODE, liquid_conv=lc, gas_conv=gc, pressure_conv=pc, icv_move_threshold=it, icv_closed_max=icm)
             save_settings(s)
             st.toast("Settings saved")
             st.rerun()

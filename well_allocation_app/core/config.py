@@ -71,6 +71,7 @@ DEFAULT_SETTINGS: dict = {
     "auto_threshold_pct": 5.0,      # auto: use MPFM when nodal deviation <= this
     "show_prosper": False,
     "icv_move_threshold": 0.5,      # ICV position change that counts as an adjustment
+    "icv_closed_max": 2.0,          # ICV daily position at or below this = closed: zone gets no rate that day
 }
 
 
